@@ -31,14 +31,12 @@ class LumaStemEngine:
         *,
         model_dir: Path | None = None,
         separator_factory: Callable[..., Any] | None = None,
-        specialist_factory: Callable[..., Any] | None = None,
         log_level: int = logging.INFO,
     ) -> None:
         default_model_dir = Path(os.environ.get("LUMASTEMS_MODEL_DIR", Path.home() / ".lumastems" / "models"))
         self.model_dir = (model_dir or default_model_dir).expanduser()
         self.model_dir.mkdir(parents=True, exist_ok=True)
         self._separator_factory = separator_factory
-        self._specialist_factory = specialist_factory
         self.log_level = log_level
 
     def _get_separator_factory(self) -> Callable[..., Any]:
@@ -54,14 +52,6 @@ class LumaStemEngine:
 
         return Separator
 
-    def _get_synth_specialist(self) -> Any:
-        if self._specialist_factory is not None:
-            return self._specialist_factory(self.model_dir)
-
-        from .specialists import SynthSpecialist
-
-        return SynthSpecialist(self.model_dir)
-
     def warm_preset(
         self,
         preset_id: str,
@@ -69,27 +59,26 @@ class LumaStemEngine:
     ) -> list[str]:
         """Download/load every unique model needed by a preset."""
         preset = get_preset(preset_id)
+        factory = self._get_separator_factory()
         downloaded: list[str] = []
-        audio_models = [
-            stage.model_filename
-            for stage in preset.stages
-            if stage.backend == StageBackend.AUDIO_SEPARATOR
-        ]
 
-        if audio_models:
-            factory = self._get_separator_factory()
-            for model in dict.fromkeys(audio_models):
-                separator = factory(
-                    model_file_dir=str(self.model_dir),
-                    log_level=self.log_level,
-                    info_only=True,
-                )
-                separator.load_model(model)
-                downloaded.append(model)
+        models = list(dict.fromkeys(stage.model_filename for stage in preset.stages))
+        total = max(len(models), 1)
 
-        if any(stage.backend == StageBackend.SYNTH_SPECIALIST for stage in preset.stages):
-            specialist = self._get_synth_specialist()
-            downloaded.extend(specialist.ensure_assets(progress=progress))
+        for index, model in enumerate(models):
+            if progress:
+                progress(index / total, f"Loading {model}")
+
+            separator = factory(
+                model_file_dir=str(self.model_dir),
+                log_level=self.log_level,
+                info_only=True,
+            )
+            separator.load_model(model)
+            downloaded.append(model)
+
+            if progress:
+                progress((index + 1) / total, f"Ready: {model}")
 
         return downloaded
 
@@ -106,12 +95,6 @@ class LumaStemEngine:
         self._validate_source(source)
 
         preset = get_preset(preset_id)
-        if (
-            any(stage.backend == StageBackend.SYNTH_SPECIALIST for stage in preset.stages)
-            and output_format.upper() != "WAV"
-        ):
-            raise SeparationError("Specialist presets currently require WAV output.")
-
         root = (output_root or Path.cwd() / "outputs").expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
 
@@ -145,23 +128,16 @@ class LumaStemEngine:
                     bounded = max(0.0, min(value, 1.0))
                     progress(_stage_start + bounded * _stage_span, message)
 
-            if stage.backend == StageBackend.AUDIO_SEPARATOR:
-                discovered = self._run_audio_separator_stage(
-                    stage=stage,
-                    stage_input=stage_input,
-                    stage_dir=stage_dir,
-                    output_format=output_format,
-                    progress=stage_progress,
-                )
-            elif stage.backend == StageBackend.SYNTH_SPECIALIST:
-                specialist = self._get_synth_specialist()
-                discovered = specialist.separate(
-                    stage_input,
-                    stage_dir,
-                    progress=stage_progress,
-                )
-            else:
+            if stage.backend != StageBackend.AUDIO_SEPARATOR:
                 raise SeparationError(f"Unsupported separation backend: {stage.backend}")
+
+            discovered = self._run_audio_separator_stage(
+                stage=stage,
+                stage_input=stage_input,
+                stage_dir=stage_dir,
+                output_format=output_format,
+                progress=stage_progress,
+            )
 
             missing = {spec.output_name for spec in stage.stems} - set(discovered)
             if missing:
@@ -171,6 +147,8 @@ class LumaStemEngine:
                 )
 
             replacement_names = {spec.output_name for spec in stage.stems}
+            if stage.input_stem is not None:
+                replacement_names.add(stage.input_stem)
             stem_files = [stem for stem in stem_files if stem.stem not in replacement_names]
 
             for spec in stage.stems:
