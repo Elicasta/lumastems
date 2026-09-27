@@ -89,82 +89,78 @@ class LumaStemEngine:
         factory = self._get_separator_factory()
         stem_paths: dict[str, Path] = {}
         stem_files: list[StemFile] = []
+        total_stages = len(preset.stages)
 
-        try:
-            total_stages = len(preset.stages)
-            for index, stage in enumerate(preset.stages):
-                stage_input = source if stage.input_stem is None else stem_paths.get(stage.input_stem)
-                if stage_input is None:
-                    raise SeparationError(
-                        f"Stage '{stage.id}' requires missing stem '{stage.input_stem}'."
-                    )
-
-                stage_dir = run_dir / stage.id
-                stage_dir.mkdir(parents=True, exist_ok=True)
-
-                if progress:
-                    progress(index / total_stages, f"Loading {stage.model_filename}")
-
-                separator = factory(
-                    model_file_dir=str(self.model_dir),
-                    output_dir=str(stage_dir),
-                    output_format=output_format.upper(),
-                    log_level=self.log_level,
-                )
-                separator.load_model(stage.model_filename)
-
-                custom_names = {stem.source_label: stem.output_name for stem in stage.stems}
-                produced = separator.separate(
-                    str(stage_input),
-                    custom_output_names=custom_names,
+        for index, stage in enumerate(preset.stages):
+            stage_input = source if stage.input_stem is None else stem_paths.get(stage.input_stem)
+            if stage_input is None:
+                raise SeparationError(
+                    f"Stage '{stage.id}' requires missing stem '{stage.input_stem}'."
                 )
 
-                discovered = self._discover_outputs(
-                    stage_dir=stage_dir,
-                    produced=produced,
-                    expected_names=set(custom_names.values()),
-                )
+            stage_dir = run_dir / stage.id
+            stage_dir.mkdir(parents=True, exist_ok=True)
 
-                missing = set(custom_names.values()) - set(discovered)
-                if missing:
-                    missing_text = ", ".join(sorted(missing))
-                    raise SeparationError(
-                        f"Model '{stage.model_filename}' did not produce expected stems: {missing_text}"
-                    )
+            if progress:
+                progress(index / total_stages, f"Loading {stage.model_filename}")
 
-                for spec in stage.stems:
-                    path = discovered[spec.output_name]
-                    stem_paths[spec.output_name] = path
-                    stem_files.append(
-                        StemFile(
-                            stem=spec.output_name,
-                            path=str(path),
-                            model=stage.model_filename,
-                            stage=stage.id,
-                        )
-                    )
-
-                if progress:
-                    progress((index + 1) / total_stages, f"Finished {stage.id}")
-
-            manifest = SeparationManifest(
-                source=str(source),
-                preset=preset.id,
+            separator = factory(
+                model_file_dir=str(self.model_dir),
+                output_dir=str(stage_dir),
                 output_format=output_format.upper(),
-                stems=stem_files,
-                created_at=datetime.now(UTC).isoformat(),
+                log_level=self.log_level,
             )
-            manifest_path = run_dir / "lumastems.json"
-            self._write_manifest(manifest_path, manifest)
+            separator.load_model(stage.model_filename)
 
-            return SeparationResult(
-                output_dir=run_dir,
-                manifest_path=manifest_path,
-                stems=stem_files,
+            custom_names = {stem.source_label: stem.output_name for stem in stage.stems}
+            produced = separator.separate(
+                str(stage_input),
+                custom_output_names=custom_names,
             )
-        except Exception:
-            # Keep partial output for diagnosis rather than deleting potentially useful stems.
-            raise
+
+            discovered = self._discover_outputs(
+                stage_dir=stage_dir,
+                produced=produced,
+                expected_names=set(custom_names.values()),
+            )
+
+            missing = set(custom_names.values()) - set(discovered)
+            if missing:
+                missing_text = ", ".join(sorted(missing))
+                raise SeparationError(
+                    f"Model '{stage.model_filename}' did not produce expected stems: {missing_text}"
+                )
+
+            for spec in stage.stems:
+                path = discovered[spec.output_name]
+                stem_paths[spec.output_name] = path
+                stem_files.append(
+                    StemFile(
+                        stem=spec.output_name,
+                        path=str(path),
+                        model=stage.model_filename,
+                        stage=stage.id,
+                    )
+                )
+
+            if progress:
+                progress((index + 1) / total_stages, f"Finished {stage.id}")
+
+        manifest = SeparationManifest(
+            source=str(source),
+            preset=preset.id,
+            output_format=output_format.upper(),
+            stems=stem_files,
+            created_at=datetime.now(UTC).isoformat(),
+        )
+        manifest_path = run_dir / "lumastems.json"
+        self._write_manifest(manifest_path, manifest)
+
+        return SeparationResult(
+            output_dir=run_dir,
+            manifest_path=manifest_path,
+            stems=stem_files,
+        )
 
     @staticmethod
     def _validate_source(source: Path) -> None:
