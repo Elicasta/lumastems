@@ -134,7 +134,7 @@ class SynthSpecialist:
         outputs = getattr(manifest, "outputs", ())
         for output in outputs:
             if getattr(output, "output_id", "").lower() == "synth":
-                path = Path(getattr(output, "output_path"))
+                path = Path(output.output_path)
                 if path.exists():
                     return path
         raise SpecialistError("Synth model completed without producing a synth stem.")
