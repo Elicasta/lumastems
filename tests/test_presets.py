@@ -1,10 +1,11 @@
 import pytest
 
+from lumastems.models import StageBackend
 from lumastems.presets import PRESETS, get_preset
 
 
 def test_required_presets_exist():
-    assert {"quick", "band", "worship"} <= set(PRESETS)
+    assert {"quick", "band", "worship", "worship7"} <= set(PRESETS)
 
 
 @pytest.mark.parametrize(
@@ -13,11 +14,19 @@ def test_required_presets_exist():
         ("quick", ("vocals", "drums", "bass", "other")),
         ("band", ("vocals", "drums", "bass", "guitar", "piano", "other")),
         ("worship", ("vocals", "drums", "bass", "guitar", "piano", "other")),
+        ("worship7", ("vocals", "drums", "bass", "guitar", "piano", "synth", "other")),
     ],
 )
 def test_expected_stems_are_stable(preset_id, expected):
     preset = get_preset(preset_id)
     assert preset.expected_stems == expected
+
+
+def test_worship7_uses_synth_specialist_on_other():
+    preset = get_preset("worship7")
+    assert len(preset.stages) == 2
+    assert preset.stages[1].backend == StageBackend.SYNTH_SPECIALIST
+    assert preset.stages[1].input_stem == "other"
 
 
 def test_stage_output_names_are_unique():
