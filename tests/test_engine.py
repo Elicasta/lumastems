@@ -1,0 +1,110 @@
+import json
+from pathlib import Path
+
+import pytest
+
+from lumastems.engine import LumaStemEngine, SeparationError
+
+
+class FakeSeparator:
+    instances = []
+
+    def __init__(self, **kwargs):
+        self.output_dir = Path(kwargs.get("output_dir", "."))
+        self.model_file_dir = Path(kwargs.get("model_file_dir", "."))
+        self.model = None
+        self.kwargs = kwargs
+        self.__class__.instances.append(self)
+
+    def load_model(self, model):
+        self.model = model
+
+    def separate(self, source, custom_output_names=None):
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        outputs = []
+        for name in (custom_output_names or {}).values():
+            path = self.output_dir / f"{name}.wav"
+            path.write_bytes(b"RIFFfake")
+            outputs.append(str(path))
+        return outputs
+
+
+@pytest.fixture(autouse=True)
+def reset_fake():
+    FakeSeparator.instances = []
+
+
+def make_audio(tmp_path: Path, name: str = "song.wav") -> Path:
+    path = tmp_path / name
+    path.write_bytes(b"RIFFsource")
+    return path
+
+
+def test_band_split_creates_stems_and_manifest(tmp_path):
+    source = make_audio(tmp_path)
+    engine = LumaStemEngine(
+        model_dir=tmp_path / "models",
+        separator_factory=FakeSeparator,
+    )
+
+    result = engine.separate(
+        source,
+        preset_id="band",
+        output_root=tmp_path / "out",
+    )
+
+    assert [stem.stem for stem in result.stems] == [
+        "vocals",
+        "drums",
+        "bass",
+        "guitar",
+        "piano",
+        "other",
+    ]
+    assert result.manifest_path.exists()
+
+    manifest = json.loads(result.manifest_path.read_text())
+    assert manifest["schema_version"] == 1
+    assert manifest["preset"] == "band"
+    assert len(manifest["stems"]) == 6
+    assert all(Path(item["path"]).exists() for item in manifest["stems"])
+
+    assert len(FakeSeparator.instances) == 1
+    assert FakeSeparator.instances[0].model == "htdemucs_6s.yaml"
+
+
+def test_output_folder_is_unique_per_run(tmp_path):
+    source = make_audio(tmp_path)
+    engine = LumaStemEngine(
+        model_dir=tmp_path / "models",
+        separator_factory=FakeSeparator,
+    )
+
+    first = engine.separate(source, preset_id="quick", output_root=tmp_path / "out")
+    second = engine.separate(source, preset_id="quick", output_root=tmp_path / "out")
+
+    assert first.output_dir != second.output_dir
+
+
+def test_missing_source_fails_before_model_load(tmp_path):
+    engine = LumaStemEngine(
+        model_dir=tmp_path / "models",
+        separator_factory=FakeSeparator,
+    )
+
+    with pytest.raises(FileNotFoundError):
+        engine.separate(tmp_path / "missing.wav")
+
+    assert FakeSeparator.instances == []
+
+
+def test_unsupported_extension_is_rejected(tmp_path):
+    source = tmp_path / "song.txt"
+    source.write_text("not audio")
+    engine = LumaStemEngine(
+        model_dir=tmp_path / "models",
+        separator_factory=FakeSeparator,
+    )
+
+    with pytest.raises(SeparationError, match="Unsupported audio format"):
+        engine.separate(source)
