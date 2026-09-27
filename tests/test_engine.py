@@ -1,5 +1,6 @@
 import json
 from pathlib import Path
+from typing import ClassVar
 
 import pytest
 
@@ -7,7 +8,7 @@ from lumastems.engine import LumaStemEngine, SeparationError
 
 
 class FakeSeparator:
-    instances = []
+    instances: ClassVar[list["FakeSeparator"]] = []
 
     def __init__(self, **kwargs):
         self.output_dir = Path(kwargs.get("output_dir", "."))
