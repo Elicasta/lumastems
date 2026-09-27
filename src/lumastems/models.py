@@ -16,7 +16,6 @@ class JobStatus(StrEnum):
 
 class StageBackend(StrEnum):
     AUDIO_SEPARATOR = "audio_separator"
-    SYNTH_SPECIALIST = "synth_specialist"
 
 
 class StemSpec(BaseModel):
