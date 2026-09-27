@@ -40,9 +40,9 @@ def test_worship7_splits_the_isolated_vocal_stem():
 
     assert specialist.model_filename == "UVR-BVE-4B_SN-44100-2.pth"
     assert specialist.input_stem == "vocals"
-    assert [stem.output_name for stem in specialist.stems] == [
-        "lead_vocals",
-        "backing_vocals",
+    assert [(stem.source_label, stem.output_name) for stem in specialist.stems] == [
+        ("Instrumental", "lead_vocals"),
+        ("Vocals", "backing_vocals"),
     ]
 
 
