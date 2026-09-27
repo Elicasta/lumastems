@@ -1,0 +1,38 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LumaStems",
+  "version": "../package.json",
+  "identifier": "com.eccreative.lumastems",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../ui-dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "LumaStems",
+        "width": 1080,
+        "height": 900,
+        "minWidth": 760,
+        "minHeight": 700,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "resources": {
+      "../python-dist/lumastems-0.2.0-py3-none-any.whl": "engine/lumastems.whl"
+    },
+    "macOS": {
+      "signingIdentity": "-"
+    }
+  }
+}
