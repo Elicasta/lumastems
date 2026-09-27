@@ -30,33 +30,9 @@ class FakeSeparator:
         return outputs
 
 
-class FakeSynthSpecialist:
-    instances: ClassVar[list["FakeSynthSpecialist"]] = []
-
-    def __init__(self, model_dir):
-        self.model_dir = Path(model_dir)
-        self.__class__.instances.append(self)
-
-    def ensure_assets(self, progress=None):
-        return ["fake-synth.ckpt", "fake-synth.yaml"]
-
-    def separate(self, input_path, output_dir, progress=None):
-        assert Path(input_path).name == "other.wav"
-        output_dir = Path(output_dir)
-        output_dir.mkdir(parents=True, exist_ok=True)
-        synth = output_dir / "synth.wav"
-        other = output_dir / "other.wav"
-        synth.write_bytes(b"RIFFsynth")
-        other.write_bytes(b"RIFFresidual")
-        if progress:
-            progress(1.0, "done")
-        return {"synth": synth.resolve(), "other": other.resolve()}
-
-
 @pytest.fixture(autouse=True)
-def reset_fakes():
+def reset_fake():
     FakeSeparator.instances = []
-    FakeSynthSpecialist.instances = []
 
 
 def make_audio(tmp_path: Path, name: str = "song.wav") -> Path:
@@ -65,15 +41,14 @@ def make_audio(tmp_path: Path, name: str = "song.wav") -> Path:
     return path
 
 
-def make_engine(tmp_path: Path, *, specialist: bool = False) -> LumaStemEngine:
+def make_engine(tmp_path: Path) -> LumaStemEngine:
     return LumaStemEngine(
         model_dir=tmp_path / "models",
         separator_factory=FakeSeparator,
-        specialist_factory=FakeSynthSpecialist if specialist else None,
     )
 
 
-def test_band_split_creates_stems_and_manifest(tmp_path):
+def test_band_split_creates_six_stems_and_manifest(tmp_path):
     source = make_audio(tmp_path)
     engine = make_engine(tmp_path)
 
@@ -103,9 +78,9 @@ def test_band_split_creates_stems_and_manifest(tmp_path):
     assert FakeSeparator.instances[0].model == "htdemucs_6s.yaml"
 
 
-def test_worship7_replaces_other_with_synth_specialist_residual(tmp_path):
+def test_worship7_replaces_full_vocals_with_lead_and_backing(tmp_path):
     source = make_audio(tmp_path)
-    engine = make_engine(tmp_path, specialist=True)
+    engine = make_engine(tmp_path)
 
     result = engine.separate(
         source,
@@ -114,18 +89,33 @@ def test_worship7_replaces_other_with_synth_specialist_residual(tmp_path):
     )
 
     assert [stem.stem for stem in result.stems] == [
-        "vocals",
+        "lead_vocals",
+        "backing_vocals",
         "drums",
         "bass",
         "guitar",
         "piano",
-        "synth",
         "other",
     ]
-    assert len([stem for stem in result.stems if stem.stem == "other"]) == 1
-    assert next(stem for stem in result.stems if stem.stem == "synth").stage == "synth"
-    assert next(stem for stem in result.stems if stem.stem == "other").stage == "synth"
-    assert len(FakeSynthSpecialist.instances) == 1
+
+    assert len(FakeSeparator.instances) == 2
+    assert FakeSeparator.instances[0].model == "htdemucs_6s.yaml"
+    assert FakeSeparator.instances[1].model == "UVR-BVE-4B_SN-44100-2.pth"
+
+    # The specialist receives the first pass vocal stem, not the full mix.
+    assert Path(FakeSeparator.instances[1].kwargs["output_dir"]).name == "vocals"
+    assert all(stem.stem != "vocals" for stem in result.stems)
+
+
+def test_warm_worship7_loads_both_real_model_names(tmp_path):
+    engine = make_engine(tmp_path)
+
+    warmed = engine.warm_preset("worship7")
+
+    assert warmed == [
+        "htdemucs_6s.yaml",
+        "UVR-BVE-4B_SN-44100-2.pth",
+    ]
 
 
 def test_output_folder_is_unique_per_run(tmp_path):
