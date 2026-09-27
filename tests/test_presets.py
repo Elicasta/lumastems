@@ -1,6 +1,5 @@
 import pytest
 
-from lumastems.models import StageBackend
 from lumastems.presets import PRESETS, get_preset
 
 
@@ -14,7 +13,18 @@ def test_required_presets_exist():
         ("quick", ("vocals", "drums", "bass", "other")),
         ("band", ("vocals", "drums", "bass", "guitar", "piano", "other")),
         ("worship", ("vocals", "drums", "bass", "guitar", "piano", "other")),
-        ("worship7", ("vocals", "drums", "bass", "guitar", "piano", "synth", "other")),
+        (
+            "worship7",
+            (
+                "lead_vocals",
+                "backing_vocals",
+                "drums",
+                "bass",
+                "guitar",
+                "piano",
+                "other",
+            ),
+        ),
     ],
 )
 def test_expected_stems_are_stable(preset_id, expected):
@@ -22,11 +32,18 @@ def test_expected_stems_are_stable(preset_id, expected):
     assert preset.expected_stems == expected
 
 
-def test_worship7_uses_synth_specialist_on_other():
+def test_worship7_splits_the_isolated_vocal_stem():
     preset = get_preset("worship7")
+
     assert len(preset.stages) == 2
-    assert preset.stages[1].backend == StageBackend.SYNTH_SPECIALIST
-    assert preset.stages[1].input_stem == "other"
+    specialist = preset.stages[1]
+
+    assert specialist.model_filename == "UVR-BVE-4B_SN-44100-2.pth"
+    assert specialist.input_stem == "vocals"
+    assert [stem.output_name for stem in specialist.stems] == [
+        "lead_vocals",
+        "backing_vocals",
+    ]
 
 
 def test_stage_output_names_are_unique():
