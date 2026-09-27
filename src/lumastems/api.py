@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import shutil
 from pathlib import Path
+from typing import Annotated
 from uuid import uuid4
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -65,9 +66,9 @@ def create_path_job(request: PathJobRequest) -> JobRecord:
 
 @app.post("/jobs/upload", response_model=JobRecord, status_code=202)
 def create_upload_job(
-    file: UploadFile = File(...),
-    preset: str = Form("worship"),
-    output_format: str = Form("WAV"),
+    file: Annotated[UploadFile, File()],
+    preset: Annotated[str, Form()] = "worship",
+    output_format: Annotated[str, Form()] = "WAV",
 ) -> JobRecord:
     try:
         get_preset(preset)
