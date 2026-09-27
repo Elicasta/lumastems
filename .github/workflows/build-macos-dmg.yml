@@ -47,9 +47,12 @@ jobs:
 
           test -x "$FFMPEG"
           "$FFMPEG" -version
+          cp "$FFMPEG" /tmp/lumastems-engine-test/bin/ffmpeg
+          chmod +x /tmp/lumastems-engine-test/bin/ffmpeg
+          /tmp/lumastems-engine-test/bin/ffmpeg -version
           /tmp/lumastems-engine-test/bin/lumastems presets
 
-          PATH="$(dirname "$FFMPEG"):$PATH" "$PYTHON" - <<'PY'
+          PATH="/tmp/lumastems-engine-test/bin:$PATH" "$PYTHON" - <<'PY'
           import audioread
           import imageio_ffmpeg
           from audio_separator.separator import Separator
@@ -100,9 +103,12 @@ jobs:
 
           test -x "$FFMPEG"
           "$FFMPEG" -version
+          cp "$FFMPEG" /tmp/lumastems-packaged-engine-test/bin/ffmpeg
+          chmod +x /tmp/lumastems-packaged-engine-test/bin/ffmpeg
+          /tmp/lumastems-packaged-engine-test/bin/ffmpeg -version
           /tmp/lumastems-packaged-engine-test/bin/lumastems presets
 
-          PATH="$(dirname "$FFMPEG"):$PATH" "$PYTHON" - <<'PY'
+          PATH="/tmp/lumastems-packaged-engine-test/bin:$PATH" "$PYTHON" - <<'PY'
           import audioread
           import imageio_ffmpeg
           from audio_separator.separator import Separator
