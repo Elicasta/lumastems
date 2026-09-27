@@ -21,3 +21,8 @@ uploads/
 *.m4a
 *.aiff
 *.aif
+
+node_modules/
+ui-dist/
+python-dist/
+src-tauri/target/
