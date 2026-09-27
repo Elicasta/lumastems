@@ -527,3 +527,21 @@ footer {
     padding-top: 52px;
   }
 }
+
+
+.action-buttons {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-copy {
+  flex: 1;
+}
+
+.status-copy strong {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+  line-height: 1.35;
+}
