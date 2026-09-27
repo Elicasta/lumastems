@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 
-const ENGINE_VERSION: &str = "0.2.1";
+const ENGINE_VERSION: &str = "0.2.2";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -256,7 +256,7 @@ fn ensure_runtime_sync(app: &AppHandle) -> Result<RuntimeStatus, String> {
             .path()
             .resource_dir()
             .map_err(|error| format!("Could not locate bundled engine resources: {error}"))?;
-        let wheel = resource_dir.join("engine/lumastems.whl");
+        let wheel = resource_dir.join("engine/lumastems-0.2.2-py3-none-any.whl");
         if !wheel.exists() {
             return Err(format!(
                 "The bundled LumaStems engine is missing: {}",
