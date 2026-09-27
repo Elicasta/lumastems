@@ -169,6 +169,14 @@ function App() {
     }
   }
 
+  async function openInstallLog() {
+    try {
+      await invoke('open_install_log');
+    } catch (err) {
+      setError(String(err));
+    }
+  }
+
   async function revealResult() {
     if (!result?.outputDir) return;
     try {
@@ -289,13 +297,20 @@ function App() {
         </div>
 
         {!runtime?.ready ? (
-          <button
-            className="primary-button"
-            disabled={busy !== null}
-            onClick={prepareEngine}
-          >
-            {busy === 'setup' ? 'Preparing engine…' : 'Prepare Engine'}
-          </button>
+          <div className="action-buttons">
+            {error && (
+              <button className="secondary-button" onClick={openInstallLog}>
+                Open Install Log
+              </button>
+            )}
+            <button
+              className="primary-button"
+              disabled={busy !== null}
+              onClick={prepareEngine}
+            >
+              {busy === 'setup' ? 'Preparing engine…' : 'Prepare Engine'}
+            </button>
+          </div>
         ) : (
           <button
             className="primary-button"
@@ -332,7 +347,7 @@ function App() {
       )}
 
       <footer>
-        <span>LumaStems 0.2</span>
+        <span>LumaStems 0.2.1</span>
         <span>Local processing · Apple Silicon</span>
       </footer>
     </main>
