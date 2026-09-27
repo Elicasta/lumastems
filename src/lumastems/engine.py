@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from .models import SeparationManifest, SeparationResult, StemFile
+from .models import SeparationManifest, SeparationResult, StageBackend, StemFile
 from .presets import get_preset
 
 SUPPORTED_INPUTS = {".wav", ".mp3", ".flac", ".m4a", ".aiff", ".aif", ".ogg"}
@@ -30,11 +30,13 @@ class LumaStemEngine:
         *,
         model_dir: Path | None = None,
         separator_factory: Callable[..., Any] | None = None,
+        specialist_factory: Callable[..., Any] | None = None,
         log_level: int = logging.INFO,
     ) -> None:
         self.model_dir = (model_dir or Path.home() / ".lumastems" / "models").expanduser()
         self.model_dir.mkdir(parents=True, exist_ok=True)
         self._separator_factory = separator_factory
+        self._specialist_factory = specialist_factory
         self.log_level = log_level
 
     def _get_separator_factory(self) -> Callable[..., Any]:
@@ -50,20 +52,42 @@ class LumaStemEngine:
 
         return Separator
 
-    def warm_preset(self, preset_id: str) -> list[str]:
+    def _get_synth_specialist(self) -> Any:
+        if self._specialist_factory is not None:
+            return self._specialist_factory(self.model_dir)
+
+        from .specialists import SynthSpecialist
+
+        return SynthSpecialist(self.model_dir)
+
+    def warm_preset(
+        self,
+        preset_id: str,
+        progress: Callable[[float, str], None] | None = None,
+    ) -> list[str]:
         """Download/load every unique model needed by a preset."""
         preset = get_preset(preset_id)
-        factory = self._get_separator_factory()
         downloaded: list[str] = []
+        audio_models = [
+            stage.model_filename
+            for stage in preset.stages
+            if stage.backend == StageBackend.AUDIO_SEPARATOR
+        ]
 
-        for model in dict.fromkeys(stage.model_filename for stage in preset.stages):
-            separator = factory(
-                model_file_dir=str(self.model_dir),
-                log_level=self.log_level,
-                info_only=True,
-            )
-            separator.load_model(model)
-            downloaded.append(model)
+        if audio_models:
+            factory = self._get_separator_factory()
+            for model in dict.fromkeys(audio_models):
+                separator = factory(
+                    model_file_dir=str(self.model_dir),
+                    log_level=self.log_level,
+                    info_only=True,
+                )
+                separator.load_model(model)
+                downloaded.append(model)
+
+        if any(stage.backend == StageBackend.SYNTH_SPECIALIST for stage in preset.stages):
+            specialist = self._get_synth_specialist()
+            downloaded.extend(specialist.ensure_assets(progress=progress))
 
         return downloaded
 
@@ -80,13 +104,16 @@ class LumaStemEngine:
         self._validate_source(source)
 
         preset = get_preset(preset_id)
+        if any(stage.backend == StageBackend.SYNTH_SPECIALIST for stage in preset.stages):
+            if output_format.upper() != "WAV":
+                raise SeparationError("Specialist presets currently require WAV output.")
+
         root = (output_root or Path.cwd() / "outputs").expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
 
         run_dir = root / f"{_safe_slug(source.stem)}-{uuid4().hex[:8]}"
         run_dir.mkdir(parents=True, exist_ok=False)
 
-        factory = self._get_separator_factory()
         stem_paths: dict[str, Path] = {}
         stem_files: list[StemFile] = []
         total_stages = len(preset.stages)
@@ -101,35 +128,41 @@ class LumaStemEngine:
             stage_dir = run_dir / stage.id
             stage_dir.mkdir(parents=True, exist_ok=True)
 
-            if progress:
-                progress(index / total_stages, f"Loading {stage.model_filename}")
+            stage_start = index / total_stages
+            stage_span = 1 / total_stages
 
-            separator = factory(
-                model_file_dir=str(self.model_dir),
-                output_dir=str(stage_dir),
-                output_format=output_format.upper(),
-                log_level=self.log_level,
-            )
-            separator.load_model(stage.model_filename)
+            def stage_progress(value: float, message: str) -> None:
+                if progress:
+                    bounded = max(0.0, min(value, 1.0))
+                    progress(stage_start + bounded * stage_span, message)
 
-            custom_names = {stem.source_label: stem.output_name for stem in stage.stems}
-            produced = separator.separate(
-                str(stage_input),
-                custom_output_names=custom_names,
-            )
+            if stage.backend == StageBackend.AUDIO_SEPARATOR:
+                discovered = self._run_audio_separator_stage(
+                    stage=stage,
+                    stage_input=stage_input,
+                    stage_dir=stage_dir,
+                    output_format=output_format,
+                    progress=stage_progress,
+                )
+            elif stage.backend == StageBackend.SYNTH_SPECIALIST:
+                specialist = self._get_synth_specialist()
+                discovered = specialist.separate(
+                    stage_input,
+                    stage_dir,
+                    progress=stage_progress,
+                )
+            else:
+                raise SeparationError(f"Unsupported separation backend: {stage.backend}")
 
-            discovered = self._discover_outputs(
-                stage_dir=stage_dir,
-                produced=produced,
-                expected_names=set(custom_names.values()),
-            )
-
-            missing = set(custom_names.values()) - set(discovered)
+            missing = {spec.output_name for spec in stage.stems} - set(discovered)
             if missing:
                 missing_text = ", ".join(sorted(missing))
                 raise SeparationError(
-                    f"Model '{stage.model_filename}' did not produce expected stems: {missing_text}"
+                    f"Stage '{stage.id}' did not produce expected stems: {missing_text}"
                 )
+
+            replacement_names = {spec.output_name for spec in stage.stems}
+            stem_files = [stem for stem in stem_files if stem.stem not in replacement_names]
 
             for spec in stage.stems:
                 path = discovered[spec.output_name]
@@ -146,11 +179,12 @@ class LumaStemEngine:
             if progress:
                 progress((index + 1) / total_stages, f"Finished {stage.id}")
 
+        ordered_files = self._order_stems(stem_files, preset.expected_stems)
         manifest = SeparationManifest(
             source=str(source),
             preset=preset.id,
             output_format=output_format.upper(),
-            stems=stem_files,
+            stems=ordered_files,
             created_at=datetime.now(UTC).isoformat(),
         )
         manifest_path = run_dir / "lumastems.json"
@@ -159,8 +193,46 @@ class LumaStemEngine:
         return SeparationResult(
             output_dir=run_dir,
             manifest_path=manifest_path,
-            stems=stem_files,
+            stems=ordered_files,
         )
+
+    def _run_audio_separator_stage(
+        self,
+        *,
+        stage: Any,
+        stage_input: Path,
+        stage_dir: Path,
+        output_format: str,
+        progress: Callable[[float, str], None] | None,
+    ) -> dict[str, Path]:
+        if progress:
+            progress(0.0, f"Loading {stage.model_filename}")
+
+        factory = self._get_separator_factory()
+        separator = factory(
+            model_file_dir=str(self.model_dir),
+            output_dir=str(stage_dir),
+            output_format=output_format.upper(),
+            log_level=self.log_level,
+        )
+        separator.load_model(stage.model_filename)
+
+        custom_names = {stem.source_label: stem.output_name for stem in stage.stems}
+        produced = separator.separate(
+            str(stage_input),
+            custom_output_names=custom_names,
+        )
+
+        return self._discover_outputs(
+            stage_dir=stage_dir,
+            produced=produced,
+            expected_names=set(custom_names.values()),
+        )
+
+    @staticmethod
+    def _order_stems(stems: list[StemFile], order: tuple[str, ...]) -> list[StemFile]:
+        by_name = {stem.stem: stem for stem in stems}
+        return [by_name[name] for name in order if name in by_name]
 
     @staticmethod
     def _validate_source(source: Path) -> None:
