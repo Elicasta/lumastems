@@ -89,7 +89,7 @@ class SynthSpecialist:
             import soundfile as sf
             import torch
             import yaml
-            from bs_roformer import demix_track, get_model_from_config
+            from bs_roformer import demix_track
             from bs_roformer.inference import SafeLoaderWithTuple
             from ml_collections import ConfigDict
         except ImportError as exc:
@@ -179,7 +179,7 @@ class SynthSpecialist:
             for estimator in model.mask_estimators:
                 repaired.append(
                     MaskEstimator(
-                        dim=int(getattr(model_config, "dim")),
+                        dim=int(model_config.dim),
                         dim_inputs=tuple(estimator.dim_inputs),
                         depth=depth,
                         mlp_expansion_factor=expansion,
