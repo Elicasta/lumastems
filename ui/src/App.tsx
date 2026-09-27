@@ -23,7 +23,7 @@ type SeparationResult = {
   stems: StemResult[];
 };
 
-type PresetId = 'quick' | 'band' | 'worship7';
+type PresetId = 'band' | 'worship7';
 
 const PRESETS: Array<{
   id: PresetId;
@@ -32,22 +32,16 @@ const PRESETS: Array<{
   stems: string;
 }> = [
   {
-    id: 'quick',
-    name: 'Quick 4',
-    detail: 'Fast split for practice.',
-    stems: 'Vocals · Drums · Bass · Other'
-  },
-  {
     id: 'band',
     name: 'Band 6',
-    detail: 'Adds guitar and piano.',
+    detail: 'Stable core split for rehearsal and playback.',
     stems: 'Vocals · Drums · Bass · Guitar · Piano · Other'
   },
   {
     id: 'worship7',
-    name: 'Worship 7',
-    detail: 'Deep split with dedicated synth specialist.',
-    stems: 'Vocals · Drums · Bass · Guitar · Piano · Synth · Other'
+    name: 'Worship Vocals 7',
+    detail: 'Band 6 plus dedicated lead and backing vocal separation.',
+    stems: 'Lead Vocal · BGV / Choir · Drums · Bass · Guitar · Piano · Other'
   }
 ];
 
@@ -60,14 +54,14 @@ function App() {
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [source, setSource] = useState('');
   const [output, setOutput] = useState('');
-  const [preset, setPreset] = useState<PresetId>('worship7');
+  const [preset, setPreset] = useState<PresetId>('band');
   const [busy, setBusy] = useState<'setup' | 'separate' | null>(null);
   const [message, setMessage] = useState('Ready to set up LumaStems.');
   const [error, setError] = useState('');
   const [result, setResult] = useState<SeparationResult | null>(null);
 
   const selectedPreset = useMemo(
-    () => PRESETS.find((item) => item.id === preset) ?? PRESETS[2],
+    () => PRESETS.find((item) => item.id === preset) ?? PRESETS[0],
     [preset]
   );
 
@@ -96,6 +90,7 @@ function App() {
         }
       ]
     });
+
     if (typeof selected === 'string') {
       setSource(selected);
       setResult(null);
@@ -108,6 +103,7 @@ function App() {
       multiple: false,
       directory: true
     });
+
     if (typeof selected === 'string') {
       setOutput(selected);
       setError('');
@@ -118,6 +114,7 @@ function App() {
     setBusy('setup');
     setError('');
     setMessage('Installing the local AI engine. This only happens once.');
+
     try {
       const status = await invoke<RuntimeStatus>('ensure_runtime');
       setRuntime(status);
@@ -135,10 +132,12 @@ function App() {
       setError('Choose a song first.');
       return;
     }
+
     if (!output) {
       setError('Choose an output folder.');
       return;
     }
+
     if (!runtime?.ready) {
       setError('Prepare the engine first.');
       return;
@@ -149,8 +148,8 @@ function App() {
     setResult(null);
     setMessage(
       preset === 'worship7'
-        ? 'Separating band stems, then isolating synth from the residual mix.'
-        : 'Separating stems.'
+        ? 'Separating Band 6, then splitting the isolated vocal stem into Lead + BGV.'
+        : 'Separating Band 6.'
     );
 
     try {
@@ -159,6 +158,7 @@ function App() {
         outputDir: output,
         preset
       });
+
       setResult(separated);
       setMessage('Separation complete.');
     } catch (err) {
@@ -179,6 +179,7 @@ function App() {
 
   async function revealResult() {
     if (!result?.outputDir) return;
+
     try {
       await invoke('open_output_folder', { path: result.outputDir });
     } catch (err) {
@@ -196,6 +197,7 @@ function App() {
             <p>Local stem separation</p>
           </div>
         </div>
+
         <div className={`engine-pill ${runtime?.ready ? 'ready' : ''}`}>
           <span className="status-dot" />
           {runtime?.ready ? 'Engine ready' : 'Engine not prepared'}
@@ -206,8 +208,8 @@ function App() {
         <p className="eyebrow">SOURCE SEPARATION</p>
         <h2>Turn a stereo master into usable band stems.</h2>
         <p className="hero-copy">
-          Worship 7 isolates guitar in the main pass, then runs a dedicated synth
-          specialist against the remaining mix.
+          Band 6 is the stable core. Worship Vocals runs one extra specialist pass
+          against the isolated vocal stem to separate lead vocals from BGVs and choir.
         </p>
       </section>
 
@@ -247,7 +249,8 @@ function App() {
               >
                 <div className="preset-top">
                   <strong>{item.name}</strong>
-                  {item.id === 'worship7' && <span className="recommended">DEEP</span>}
+                  {item.id === 'band' && <span className="recommended">STABLE</span>}
+                  {item.id === 'worship7' && <span className="recommended">VOCALS</span>}
                 </div>
                 <span>{item.detail}</span>
                 <small>{item.stems}</small>
@@ -290,8 +293,8 @@ function App() {
             <strong>{error || message}</strong>
             <small>
               {preset === 'worship7'
-                ? 'First use downloads the synth specialist model and caches it locally.'
-                : 'Processing stays on this Mac.'}
+                ? 'First use downloads the backing-vocal specialist model and caches it locally.'
+                : 'Band 6 uses the stable local Demucs model.'}
             </small>
           </div>
         </div>
@@ -347,7 +350,7 @@ function App() {
       )}
 
       <footer>
-        <span>LumaStems 0.2.6</span>
+        <span>LumaStems 0.3.0</span>
         <span>Local processing · Apple Silicon</span>
       </footer>
     </main>
