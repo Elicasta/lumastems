@@ -54,6 +54,29 @@ jobs:
       - name: Build Apple Silicon app and DMG
         run: npm run tauri:build -- --target aarch64-apple-darwin
 
+      - name: Smoke test packaged app
+        shell: bash
+        run: |
+          APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/LumaStems.app"
+          BIN="$APP/Contents/MacOS/LumaStems"
+          test -d "$APP"
+          test -x "$BIN"
+          echo "Launching $BIN"
+          "$BIN" > /tmp/lumastems-startup.log 2>&1 &
+          PID=$!
+          sleep 8
+          if ! kill -0 "$PID" 2>/dev/null; then
+            echo "::error::LumaStems exited during startup smoke test"
+            echo "----- startup output -----"
+            cat /tmp/lumastems-startup.log || true
+            echo "----- recent crash reports -----"
+            find "$HOME/Library/Logs/DiagnosticReports" -maxdepth 1 -type f -name 'LumaStems*' -print -exec sh -c 'tail -n 120 "$1"' _ {} \; 2>/dev/null || true
+            exit 1
+          fi
+          kill "$PID"
+          wait "$PID" || true
+          echo "Startup smoke test passed"
+
       - name: Stage installer
         shell: bash
         run: |
