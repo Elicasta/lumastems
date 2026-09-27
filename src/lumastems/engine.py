@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from collections.abc import Callable
 from datetime import UTC, datetime
@@ -33,7 +34,8 @@ class LumaStemEngine:
         specialist_factory: Callable[..., Any] | None = None,
         log_level: int = logging.INFO,
     ) -> None:
-        self.model_dir = (model_dir or Path.home() / ".lumastems" / "models").expanduser()
+        default_model_dir = Path(os.environ.get("LUMASTEMS_MODEL_DIR", Path.home() / ".lumastems" / "models"))
+        self.model_dir = (model_dir or default_model_dir).expanduser()
         self.model_dir.mkdir(parents=True, exist_ok=True)
         self._separator_factory = separator_factory
         self._specialist_factory = specialist_factory
