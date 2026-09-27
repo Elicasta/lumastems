@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import shutil
 import urllib.error
 import urllib.request
 from collections.abc import Callable
@@ -26,20 +25,28 @@ class SynthSpecialist:
     """MVSep Mega 53 synth-vs-rest specialist.
 
     The broad six-stem pass first removes vocals, drums, bass, guitar, and piano.
-    This specialist then receives only the residual other stem.
+    This specialist receives only the residual Other stem, runs the published
+    BS-RoFormer model through bs-roformer-infer's supported public primitives,
+    then writes Synth plus the remaining residual Other.
     """
 
-    def __init__(
-        self,
-        model_dir: Path,
-        *,
-        session_factory: Callable[..., object] | None = None,
-    ) -> None:
+    def __init__(self, model_dir: Path) -> None:
         self.model_dir = model_dir / "synth"
         self.model_dir.mkdir(parents=True, exist_ok=True)
         self.model_path = self.model_dir / SYNTH_MODEL_FILENAME
         self.config_path = self.model_dir / SYNTH_CONFIG_FILENAME
-        self._session_factory = session_factory
+
+    @staticmethod
+    def validate_runtime_api() -> None:
+        """Fail early if the installed bs-roformer-infer API is incompatible."""
+        try:
+            from bs_roformer import demix_track, get_model_from_config  # noqa: F401
+            from bs_roformer.inference import SafeLoaderWithTuple  # noqa: F401
+            from ml_collections import ConfigDict  # noqa: F401
+        except ImportError as exc:
+            raise SpecialistError(
+                "The installed bs-roformer-infer runtime is incompatible with LumaStems."
+            ) from exc
 
     def ensure_assets(
         self,
@@ -69,110 +76,127 @@ class SynthSpecialist:
         if input_path.suffix.lower() != ".wav":
             raise SpecialistError("Synth specialist currently requires a WAV input stem.")
 
+        self.validate_runtime_api()
         self.ensure_assets(progress=progress)
         output_dir.mkdir(parents=True, exist_ok=True)
-        input_dir = output_dir / "_input"
-        raw_dir = output_dir / "_raw"
-        input_dir.mkdir(parents=True, exist_ok=True)
-        raw_dir.mkdir(parents=True, exist_ok=True)
-
-        staged_input = input_dir / "other.wav"
-        shutil.copy2(input_path, staged_input)
 
         if progress:
             progress(0.0, "Loading synth specialist")
 
-        session_factory = self._get_session_factory()
-        session = session_factory(
-            model_name="lumastems-mvsep-synth",
-            model_path=self.model_path,
-            config_path=self.config_path,
-            device="cpu",
-            progress=False,
-        )
+        try:
+            import numpy as np
+            import soundfile as sf
+            import torch
+            import yaml
+            from bs_roformer import demix_track, get_model_from_config
+            from bs_roformer.inference import SafeLoaderWithTuple
+            from ml_collections import ConfigDict
+        except ImportError as exc:
+            raise SpecialistError(
+                "Synth specialist dependencies are incomplete in the LumaStems runtime."
+            ) from exc
 
         try:
-            session.load()
-            manifest = session.infer(
-                input_dir,
-                store_dir=raw_dir,
-                verbose=False,
-                output_format="wav_float32",
+            with self.config_path.open("r", encoding="utf-8") as handle:
+                config = ConfigDict(yaml.load(handle, Loader=SafeLoaderWithTuple))
+
+            model = get_model_from_config("bs_roformer", config)
+            checkpoint = torch.load(self.model_path, map_location=torch.device("cpu"))
+            model.load_state_dict(checkpoint)
+            device = torch.device("cpu")
+            model = model.to(device)
+            model.eval()
+
+            mixture_audio, sample_rate = sf.read(
+                input_path,
+                always_2d=True,
+                dtype="float32",
             )
-        finally:
-            session.close()
+            if mixture_audio.shape[1] == 1:
+                mixture_audio = np.repeat(mixture_audio, 2, axis=1)
 
-        synth_source = self._find_synth_output(manifest)
-        synth_path = output_dir / "synth.wav"
-        shutil.copy2(synth_source, synth_path)
+            mixture = torch.tensor(mixture_audio.T, dtype=torch.float32)
 
-        other_path = output_dir / "other.wav"
-        self._write_residual(staged_input, synth_path, other_path)
+            if progress:
+                progress(0.15, "Separating synth")
 
-        shutil.rmtree(input_dir, ignore_errors=True)
-        shutil.rmtree(raw_dir, ignore_errors=True)
+            separated, _ = demix_track(
+                config,
+                model,
+                mixture,
+                device,
+                first_chunk_time=None,
+            )
+            target = self._resolve_target_instrument(config, separated)
+            synth_audio = separated[target].T
+
+            if synth_audio.ndim == 1:
+                synth_audio = np.stack([synth_audio, synth_audio], axis=-1)
+
+            synth_audio = self._match_shape(synth_audio, mixture_audio)
+            other_audio = mixture_audio - synth_audio
+
+            synth_path = output_dir / "synth.wav"
+            other_path = output_dir / "other.wav"
+            sf.write(synth_path, synth_audio, sample_rate, subtype="FLOAT")
+            sf.write(other_path, other_audio, sample_rate, subtype="FLOAT")
+        except SpecialistError:
+            raise
+        except Exception as exc:
+            raise SpecialistError(f"Synth specialist inference failed: {exc}") from exc
 
         if progress:
             progress(1.0, "Synth specialist complete")
 
-        return {"synth": synth_path.resolve(), "other": other_path.resolve()}
-
-    def _get_session_factory(self) -> Callable[..., object]:
-        if self._session_factory is not None:
-            return self._session_factory
-
-        try:
-            from bs_roformer.clean_api import BSRoformerSession
-        except ImportError as exc:
-            raise SpecialistError(
-                "bs-roformer-infer is not installed in the LumaStems runtime."
-            ) from exc
-        return BSRoformerSession
+        return {
+            "synth": synth_path.resolve(),
+            "other": other_path.resolve(),
+        }
 
     @staticmethod
-    def _find_synth_output(manifest: object) -> Path:
-        outputs = getattr(manifest, "outputs", ())
-        for output in outputs:
-            if getattr(output, "output_id", "").lower() == "synth":
-                path = Path(output.output_path)
-                if path.exists():
-                    return path
-        raise SpecialistError("Synth model completed without producing a synth stem.")
+    def _resolve_target_instrument(config: object, separated: dict[str, object]) -> str:
+        training = getattr(config, "training", None)
+        target = getattr(training, "target_instrument", None)
+        if target and target in separated:
+            return str(target)
+
+        keys = list(separated)
+        for key in keys:
+            normalized = key.lower().replace("_", " ").replace("-", " ")
+            if "synth" in normalized:
+                return key
+
+        instruments = list(getattr(training, "instruments", ()) or ())
+        if len(instruments) == 1 and instruments[0] in separated:
+            return str(instruments[0])
+
+        raise SpecialistError(
+            "Synth model ran but did not expose a synth target. "
+            f"Available outputs: {', '.join(keys) or 'none'}"
+        )
 
     @staticmethod
-    def _write_residual(source: Path, synth: Path, destination: Path) -> None:
-        try:
-            import numpy as np
-            import soundfile as sf
-        except ImportError as exc:
-            raise SpecialistError("numpy and soundfile are required for synth residual output.") from exc
+    def _match_shape(synth_audio: object, mixture_audio: object):
+        import numpy as np
 
-        mixture, sample_rate = sf.read(source, always_2d=True, dtype="float32")
-        synth_audio, synth_rate = sf.read(synth, always_2d=True, dtype="float32")
-        if sample_rate != synth_rate:
-            raise SpecialistError(
-                f"Synth output sample rate changed unexpectedly: {sample_rate} -> {synth_rate}"
-            )
-
-        if synth_audio.shape[1] != mixture.shape[1]:
-            if synth_audio.shape[1] == 1 and mixture.shape[1] == 2:
+        if synth_audio.shape[1] != mixture_audio.shape[1]:
+            if synth_audio.shape[1] == 1 and mixture_audio.shape[1] == 2:
                 synth_audio = np.repeat(synth_audio, 2, axis=1)
             else:
                 raise SpecialistError(
                     "Synth output channel count does not match the source residual."
                 )
 
-        if synth_audio.shape[0] < mixture.shape[0]:
+        if synth_audio.shape[0] < mixture_audio.shape[0]:
             pad = np.zeros(
-                (mixture.shape[0] - synth_audio.shape[0], synth_audio.shape[1]),
+                (mixture_audio.shape[0] - synth_audio.shape[0], synth_audio.shape[1]),
                 dtype=synth_audio.dtype,
             )
             synth_audio = np.concatenate([synth_audio, pad], axis=0)
-        elif synth_audio.shape[0] > mixture.shape[0]:
-            synth_audio = synth_audio[: mixture.shape[0]]
+        elif synth_audio.shape[0] > mixture_audio.shape[0]:
+            synth_audio = synth_audio[: mixture_audio.shape[0]]
 
-        residual = mixture - synth_audio
-        sf.write(destination, residual, sample_rate, subtype="FLOAT")
+        return synth_audio
 
     @staticmethod
     def _download(
