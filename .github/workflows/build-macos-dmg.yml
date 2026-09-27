@@ -1,0 +1,91 @@
+name: Build macOS DMG
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: lumastems-macos-dmg
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Apple Silicon DMG
+    runs-on: macos-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Build bundled engine wheel
+        run: |
+          python -m pip install --upgrade pip build
+          python -m build --wheel --outdir python-dist
+          test -f python-dist/lumastems-0.2.0-py3-none-any.whl
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install desktop dependencies
+        run: npm install
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - name: Cache Rust build
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Build Apple Silicon app and DMG
+        run: npm run tauri:build -- --target aarch64-apple-darwin
+
+      - name: Stage installer
+        shell: bash
+        run: |
+          DMG="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$DMG"
+          cp "$DMG" LumaStems-0.2.0-Apple-Silicon.dmg
+          ls -lh LumaStems-0.2.0-Apple-Silicon.dmg
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LumaStems-0.2.0-Apple-Silicon
+          path: LumaStems-0.2.0-Apple-Silicon.dmg
+          if-no-files-found: error
+
+      - name: Publish preview release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.2.0-preview
+          name: "LumaStems 0.2.0 Preview"
+          body: |
+            First installable LumaStems macOS preview.
+
+            Includes:
+            - Quick 4-stem separation
+            - Band 6 with dedicated guitar and piano
+            - Worship 7 with a dedicated BS-RoFormer synth specialist
+            - Local managed AI runtime
+            - WAV stem export and manifest output
+
+            Apple Silicon only. This build is ad-hoc signed, so macOS may require right-click > Open on first launch.
+          prerelease: true
+          make_latest: true
+          files: LumaStems-0.2.0-Apple-Silicon.dmg
+          overwrite_files: true
