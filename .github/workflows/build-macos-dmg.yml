@@ -80,7 +80,7 @@ jobs:
 
           test -d "$APP"
           test -f "$WHEEL"
-          basename "$WHEEL" | grep -Eq '^lumastems-0\.2\.3-[^-]+-[^-]+-[^-]+\.whl
+          basename "$WHEEL" | grep -Eq '^lumastems-0\.2\.3-[^-]+-[^-]+-[^-]+\.whl$'
 
           rm -rf /tmp/lumastems-packaged-engine-test
           uv venv /tmp/lumastems-packaged-engine-test --python 3.12
