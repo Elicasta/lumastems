@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 
-const ENGINE_VERSION: &str = "0.2.6";
+const ENGINE_VERSION: &str = "0.3.0";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -258,7 +258,7 @@ fn ensure_runtime_sync(app: &AppHandle) -> Result<RuntimeStatus, String> {
             .path()
             .resource_dir()
             .map_err(|error| format!("Could not locate bundled engine resources: {error}"))?;
-        let wheel = resource_dir.join("engine/lumastems-0.2.6-py3-none-any.whl");
+        let wheel = resource_dir.join("engine/lumastems-0.3.0-py3-none-any.whl");
         if !wheel.exists() {
             return Err(format!(
                 "The bundled LumaStems engine is missing: {}",
@@ -329,7 +329,7 @@ fn ensure_runtime_sync(app: &AppHandle) -> Result<RuntimeStatus, String> {
         validate_imports
             .args([
                 "-c",
-                "import audioread; from audio_separator.separator import Separator; Separator(); import bs_roformer, imageio_ffmpeg, lumastems; from lumastems.specialists import SynthSpecialist; SynthSpecialist.validate_runtime_api(); print('runtime separator, ffmpeg, and synth API ok')",
+                "import audioread; from audio_separator.separator import Separator; Separator(); import imageio_ffmpeg, lumastems; print('runtime separator and ffmpeg ok')",
             ])
             .env("PATH", &runtime_path);
         run_checked_logged(
