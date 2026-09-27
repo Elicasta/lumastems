@@ -29,7 +29,7 @@
     "active": true,
     "targets": ["app", "dmg"],
     "resources": {
-      "../python-dist/lumastems-0.2.1-py3-none-any.whl": "engine/lumastems.whl"
+      "../python-dist/lumastems-0.2.2-py3-none-any.whl": "engine/lumastems-0.2.2-py3-none-any.whl"
     },
     "macOS": {
       "signingIdentity": "-"
