@@ -106,9 +106,11 @@ class LumaStemEngine:
         self._validate_source(source)
 
         preset = get_preset(preset_id)
-        if any(stage.backend == StageBackend.SYNTH_SPECIALIST for stage in preset.stages):
-            if output_format.upper() != "WAV":
-                raise SeparationError("Specialist presets currently require WAV output.")
+        if (
+            any(stage.backend == StageBackend.SYNTH_SPECIALIST for stage in preset.stages)
+            and output_format.upper() != "WAV"
+        ):
+            raise SeparationError("Specialist presets currently require WAV output.")
 
         root = (output_root or Path.cwd() / "outputs").expanduser().resolve()
         root.mkdir(parents=True, exist_ok=True)
@@ -133,10 +135,15 @@ class LumaStemEngine:
             stage_start = index / total_stages
             stage_span = 1 / total_stages
 
-            def stage_progress(value: float, message: str) -> None:
+            def stage_progress(
+                value: float,
+                message: str,
+                _stage_start: float = stage_start,
+                _stage_span: float = stage_span,
+            ) -> None:
                 if progress:
                     bounded = max(0.0, min(value, 1.0))
-                    progress(stage_start + bounded * stage_span, message)
+                    progress(_stage_start + bounded * _stage_span, message)
 
             if stage.backend == StageBackend.AUDIO_SEPARATOR:
                 discovered = self._run_audio_separator_stage(
