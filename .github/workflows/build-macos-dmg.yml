@@ -33,6 +33,21 @@ jobs:
           python -m build --wheel --outdir python-dist
           test -f python-dist/lumastems-0.2.0-py3-none-any.whl
 
+      - name: Verify first-run AI engine install
+        shell: bash
+        run: |
+          python -m pip install --upgrade uv
+          rm -rf /tmp/lumastems-engine-test
+          uv venv /tmp/lumastems-engine-test --python 3.12
+          uv pip install --python /tmp/lumastems-engine-test/bin/python python-dist/lumastems-0.2.0-py3-none-any.whl
+          /tmp/lumastems-engine-test/bin/lumastems presets
+          /tmp/lumastems-engine-test/bin/python - <<'PY'
+          import audio_separator
+          import bs_roformer
+          import lumastems
+          print("LumaStems runtime imports passed")
+          PY
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
