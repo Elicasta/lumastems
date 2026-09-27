@@ -58,17 +58,14 @@ def split(
         progress=progress,
     )
 
+    payload = {
+        "output_dir": str(result.output_dir),
+        "manifest": str(result.manifest_path),
+        "stems": [stem.model_dump() for stem in result.stems],
+    }
+
     if json_output:
-        typer.echo(
-            json.dumps(
-                {
-                    "output_dir": str(result.output_dir),
-                    "manifest": str(result.manifest_path),
-                    "stems": [stem.model_dump() for stem in result.stems],
-                },
-                indent=2,
-            )
-        )
+        typer.echo(f"LUMASTEMS_RESULT={json.dumps(payload, separators=(',', ':'))}")
         return
 
     typer.echo(f"Done: {result.output_dir}")
