@@ -1,6 +1,37 @@
 # LumaStems Integration Contract
 
-LumaStems is intended to be the shared separation engine for several clients. Clients should consume the manifest rather than infer stems from filenames.
+Clients should consume `lumastems.json` rather than infer stems from filenames.
+
+## Stable presets
+
+### Band 6
+
+Canonical stem IDs:
+
+```text
+vocals
+drums
+bass
+guitar
+piano
+other
+```
+
+### Worship Vocals 7
+
+Canonical stem IDs:
+
+```text
+lead_vocals
+backing_vocals
+drums
+bass
+guitar
+piano
+other
+```
+
+The Worship Vocals pipeline first creates Band 6, then replaces the final manifest's `vocals` entry with `lead_vocals` and `backing_vocals`.
 
 ## Service
 
@@ -10,26 +41,21 @@ Default local endpoint:
 http://127.0.0.1:8765
 ```
 
-### Submit a local path
+Submit an existing local file:
 
 `POST /jobs/from-path`
 
 ```json
 {
   "path": "/absolute/path/song.wav",
-  "preset": "worship",
+  "preset": "worship7",
   "output_format": "WAV"
 }
 ```
 
-### Read job state
+Read state:
 
 `GET /jobs/{job_id}`
-
-Terminal states:
-
-- `succeeded`
-- `failed`
 
 Jobs move through:
 
@@ -44,14 +70,14 @@ queued -> running -> succeeded
 {
   "schema_version": 1,
   "source": "/absolute/path/song.wav",
-  "preset": "worship",
+  "preset": "worship7",
   "output_format": "WAV",
   "stems": [
     {
-      "stem": "drums",
-      "path": "/absolute/path/output/main/drums.wav",
-      "model": "htdemucs_6s.yaml",
-      "stage": "main"
+      "stem": "lead_vocals",
+      "path": "/absolute/path/output/vocals/lead_vocals.wav",
+      "model": "UVR-BVE-4B_SN-44100-2.pth",
+      "stage": "vocals"
     }
   ],
   "created_at": "2026-09-27T19:00:00+00:00"
@@ -61,42 +87,6 @@ queued -> running -> succeeded
 Consumers should use `stem` as the canonical identity and `path` as the media location.
 
 Do not depend on directory names, random run suffixes, or model filenames.
-
-## Canonical v1 stem IDs
-
-```text
-vocals
-drums
-bass
-guitar
-piano
-other
-```
-
-Quick mode exposes only:
-
-```text
-vocals
-drums
-bass
-other
-```
-
-Future specialist passes may add IDs such as:
-
-```text
-lead_vocals
-backing_vocals
-kick
-snare
-toms
-cymbals
-synth
-strings
-organ
-```
-
-A new stem ID should only be published after the underlying stage is implemented and quality-checked.
 
 ## Ableton adapter behavior
 
@@ -108,14 +98,12 @@ The future Ableton adapter should:
 4. create one audio track per returned stem
 5. preserve sample alignment at the source start time
 6. name tracks from canonical stem IDs
-7. group the generated tracks under `STEMS`
+7. group generated tracks under `STEMS`
 8. preserve the original mix as a disabled/reference track
 9. never resubmit the same job because a UI button was tapped twice
 
-The last point matters. Adapter requests should gain an idempotency key before we expose this as a one-click Live action.
+The adapter should use an idempotency key before one-click creation is exposed.
 
 ## LumaStudio behavior
 
-LumaStudio should use the same API and manifest. It should not ship its own copy of the model-selection logic.
-
-That keeps model upgrades, naming, and specialist-stage behavior in one place.
+LumaStudio should use this same API and manifest rather than duplicate model-selection logic.
