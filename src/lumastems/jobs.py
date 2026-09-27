@@ -87,7 +87,7 @@ class JobManager:
                 output_format=output_format,
                 progress=on_progress,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - worker boundary must convert failures into job state
             self._patch(
                 job_id,
                 status=JobStatus.FAILED,
