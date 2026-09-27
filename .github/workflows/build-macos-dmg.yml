@@ -31,7 +31,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           python -m build --wheel --outdir python-dist
-          test -f python-dist/lumastems-0.2.0-py3-none-any.whl
+          test -f python-dist/lumastems-0.2.1-py3-none-any.whl
 
       - name: Verify first-run AI engine install
         shell: bash
@@ -39,7 +39,7 @@ jobs:
           python -m pip install --upgrade uv
           rm -rf /tmp/lumastems-engine-test
           uv venv /tmp/lumastems-engine-test --python 3.12
-          uv pip install --python /tmp/lumastems-engine-test/bin/python python-dist/lumastems-0.2.0-py3-none-any.whl
+          uv pip install --python /tmp/lumastems-engine-test/bin/python python-dist/lumastems-0.2.1-py3-none-any.whl
           /tmp/lumastems-engine-test/bin/lumastems presets
           /tmp/lumastems-engine-test/bin/python - <<'PY'
           import audio_separator
@@ -98,21 +98,21 @@ jobs:
         run: |
           DMG="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
           test -n "$DMG"
-          cp "$DMG" LumaStems-0.2.0-Apple-Silicon.dmg
-          ls -lh LumaStems-0.2.0-Apple-Silicon.dmg
+          cp "$DMG" LumaStems-0.2.1-Apple-Silicon.dmg
+          ls -lh LumaStems-0.2.1-Apple-Silicon.dmg
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LumaStems-0.2.0-Apple-Silicon
-          path: LumaStems-0.2.0-Apple-Silicon.dmg
+          name: LumaStems-0.2.1-Apple-Silicon
+          path: LumaStems-0.2.1-Apple-Silicon.dmg
           if-no-files-found: error
 
       - name: Publish preview release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.0-preview
-          name: "LumaStems 0.2.0 Preview"
+          tag_name: v0.2.1-preview
+          name: "LumaStems 0.2.1 Preview"
           body: |
             First installable LumaStems macOS preview.
 
@@ -126,5 +126,5 @@ jobs:
             Apple Silicon only. This build is ad-hoc signed, so macOS may require right-click > Open on first launch.
           prerelease: true
           make_latest: true
-          files: LumaStems-0.2.0-Apple-Silicon.dmg
+          files: LumaStems-0.2.1-Apple-Silicon.dmg
           overwrite_files: true
