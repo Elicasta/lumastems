@@ -1,6 +1,6 @@
 [package]
 name = "lumastems-desktop"
-version = "0.2.5"
+version = "0.2.6"
 description = "LumaStems macOS desktop app"
 authors = ["EC Creative Studios"]
 edition = "2021"
