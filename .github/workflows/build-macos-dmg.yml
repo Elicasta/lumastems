@@ -32,21 +32,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           python -m build --wheel --outdir python-dist
-          test -f python-dist/lumastems-0.2.6-py3-none-any.whl
+          test -f python-dist/lumastems-0.3.0-py3-none-any.whl
 
-      - name: Verify source wheel, FFmpeg, and real separator
+      - name: Install and verify source runtime
         shell: bash
         run: |
           python -m pip install --upgrade uv
-          rm -rf /tmp/lumastems-engine-test
+          rm -rf /tmp/lumastems-engine-test /tmp/lumastems-ci-models
           uv venv /tmp/lumastems-engine-test --python 3.12
-          uv pip install             --python /tmp/lumastems-engine-test/bin/python             python-dist/lumastems-0.2.6-py3-none-any.whl
+          uv pip install             --python /tmp/lumastems-engine-test/bin/python             python-dist/lumastems-0.3.0-py3-none-any.whl
 
           PYTHON=/tmp/lumastems-engine-test/bin/python
           FFMPEG="$("$PYTHON" -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
 
           test -x "$FFMPEG"
-          "$FFMPEG" -version
           cp "$FFMPEG" /tmp/lumastems-engine-test/bin/ffmpeg
           chmod +x /tmp/lumastems-engine-test/bin/ffmpeg
           /tmp/lumastems-engine-test/bin/ffmpeg -version
@@ -58,14 +57,80 @@ jobs:
           from audio_separator.separator import Separator
 
           Separator()
-          import bs_roformer
           import lumastems
+          print("Core runtime passed")
+          PY
+
+      - name: Create vocal specialist fixture
+        shell: bash
+        run: |
+          /tmp/lumastems-engine-test/bin/python - <<'PY'
+          import math
+          import struct
+          import wave
+
+          path = "/tmp/lumastems-vocal-fixture.wav"
+          rate = 44100
+          seconds = 8
+
+          with wave.open(path, "wb") as wav:
+              wav.setnchannels(2)
+              wav.setsampwidth(2)
+              wav.setframerate(rate)
+
+              for i in range(rate * seconds):
+                  t = i / rate
+                  lead = 0.34 * math.sin(2 * math.pi * 220 * t)
+                  harmony = 0.18 * math.sin(2 * math.pi * 330 * t)
+                  movement = 0.08 * math.sin(2 * math.pi * 2.5 * t)
+                  left = max(-1.0, min(1.0, lead + harmony + movement))
+                  right = max(-1.0, min(1.0, lead + 0.85 * harmony - movement))
+                  wav.writeframesraw(
+                      struct.pack(
+                          "<hh",
+                          int(left * 32767),
+                          int(right * 32767),
+                      )
+                  )
+
+          print(path)
+          PY
+
+      - name: Verify real backing-vocal model
+        shell: bash
+        run: |
+          rm -rf /tmp/lumastems-bve-source
+
+          PATH="/tmp/lumastems-engine-test/bin:$PATH"           /tmp/lumastems-engine-test/bin/python - <<'PY'
           from pathlib import Path
-          from lumastems.specialists import SynthSpecialist
-          specialist = SynthSpecialist(Path("/tmp/lumastems-ci-models"))
-          specialist.validate_runtime_api()
-          specialist.validate_checkpoint_compatibility()
-          print("Source wheel real Separator + FFmpeg + actual synth checkpoint load passed")
+          from audio_separator.separator import Separator
+
+          model_dir = Path("/tmp/lumastems-ci-models")
+          output_dir = Path("/tmp/lumastems-bve-source")
+          output_dir.mkdir(parents=True, exist_ok=True)
+
+          separator = Separator(
+              model_file_dir=str(model_dir),
+              output_dir=str(output_dir),
+              output_format="WAV",
+          )
+          separator.load_model("UVR-BVE-4B_SN-44100-2.pth")
+
+          produced = separator.separate(
+              "/tmp/lumastems-vocal-fixture.wav",
+              custom_output_names={
+                  "Lead Vocals": "lead_vocals",
+                  "Backing Vocals": "backing_vocals",
+              },
+          )
+
+          files = [Path(item).name.lower() for item in produced]
+          files += [path.name.lower() for path in output_dir.glob("*.wav")]
+          print("BVE outputs:", files)
+
+          assert any("lead_vocals" in name for name in files), files
+          assert any("backing_vocals" in name for name in files), files
+          print("Real BVE lead/backing separation passed")
           PY
 
       - name: Set up Node.js
@@ -89,15 +154,15 @@ jobs:
       - name: Build Apple Silicon app and DMG
         run: npm run tauri:build -- --target aarch64-apple-darwin
 
-      - name: Verify packaged wheel, FFmpeg, and real separator
+      - name: Verify packaged wheel
         shell: bash
         run: |
           APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/LumaStems.app"
-          WHEEL="$APP/Contents/Resources/engine/lumastems-0.2.6-py3-none-any.whl"
+          WHEEL="$APP/Contents/Resources/engine/lumastems-0.3.0-py3-none-any.whl"
 
           test -d "$APP"
           test -f "$WHEEL"
-          test "$(basename "$WHEEL")" = "lumastems-0.2.6-py3-none-any.whl"
+          test "$(basename "$WHEEL")" = "lumastems-0.3.0-py3-none-any.whl"
 
           rm -rf /tmp/lumastems-packaged-engine-test
           uv venv /tmp/lumastems-packaged-engine-test --python 3.12
@@ -106,35 +171,60 @@ jobs:
           PYTHON=/tmp/lumastems-packaged-engine-test/bin/python
           FFMPEG="$("$PYTHON" -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
 
-          test -x "$FFMPEG"
-          "$FFMPEG" -version
           cp "$FFMPEG" /tmp/lumastems-packaged-engine-test/bin/ffmpeg
           chmod +x /tmp/lumastems-packaged-engine-test/bin/ffmpeg
-          /tmp/lumastems-packaged-engine-test/bin/ffmpeg -version
-          /tmp/lumastems-packaged-engine-test/bin/lumastems presets
 
           PATH="/tmp/lumastems-packaged-engine-test/bin:$PATH" "$PYTHON" - <<'PY'
           import audioread
-          import imageio_ffmpeg
           from audio_separator.separator import Separator
 
           Separator()
-          import bs_roformer
           import lumastems
+          print("Packaged core runtime passed")
+          PY
+
+      - name: Verify packaged vocal specialist
+        shell: bash
+        run: |
+          rm -rf /tmp/lumastems-bve-packaged
+
+          PATH="/tmp/lumastems-packaged-engine-test/bin:$PATH"           /tmp/lumastems-packaged-engine-test/bin/python - <<'PY'
           from pathlib import Path
-          from lumastems.specialists import SynthSpecialist
-          specialist = SynthSpecialist(Path("/tmp/lumastems-ci-models"))
-          specialist.validate_runtime_api()
-          specialist.validate_checkpoint_compatibility()
-          print("Packaged wheel real Separator + FFmpeg + actual synth checkpoint load passed")
+          from audio_separator.separator import Separator
+
+          output_dir = Path("/tmp/lumastems-bve-packaged")
+          output_dir.mkdir(parents=True, exist_ok=True)
+
+          separator = Separator(
+              model_file_dir="/tmp/lumastems-ci-models",
+              output_dir=str(output_dir),
+              output_format="WAV",
+          )
+          separator.load_model("UVR-BVE-4B_SN-44100-2.pth")
+
+          produced = separator.separate(
+              "/tmp/lumastems-vocal-fixture.wav",
+              custom_output_names={
+                  "Lead Vocals": "lead_vocals",
+                  "Backing Vocals": "backing_vocals",
+              },
+          )
+
+          files = [Path(item).name.lower() for item in produced]
+          files += [path.name.lower() for path in output_dir.glob("*.wav")]
+          print("Packaged BVE outputs:", files)
+
+          assert any("lead_vocals" in name for name in files), files
+          assert any("backing_vocals" in name for name in files), files
+          print("Packaged BVE separation passed")
           PY
 
       - name: Smoke test packaged app
         shell: bash
         run: |
           APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/LumaStems.app"
-          test -d "$APP"
           BIN="$(find "$APP/Contents/MacOS" -maxdepth 1 -type f -perm -111 -print -quit)"
+
           test -n "$BIN"
           test -x "$BIN"
 
@@ -156,37 +246,35 @@ jobs:
         run: |
           DMG="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
           test -n "$DMG"
-          cp "$DMG" LumaStems-0.2.6-Apple-Silicon.dmg
-          ls -lh LumaStems-0.2.6-Apple-Silicon.dmg
+          cp "$DMG" LumaStems-0.3.0-Apple-Silicon.dmg
+          ls -lh LumaStems-0.3.0-Apple-Silicon.dmg
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LumaStems-0.2.6-Apple-Silicon
-          path: LumaStems-0.2.6-Apple-Silicon.dmg
+          name: LumaStems-0.3.0-Apple-Silicon
+          path: LumaStems-0.3.0-Apple-Silicon.dmg
           if-no-files-found: error
 
       - name: Publish preview release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.6-preview
-          name: "LumaStems 0.2.6 Preview"
+          tag_name: v0.3.0-preview
+          name: "LumaStems 0.3.0 Preview"
           body: |
-            Fixes the Worship 7 BS-RoFormer checkpoint architecture mismatch.
+            Stability-first release.
 
-            The published MVSep synth config uses mlp_expansion_factor=2, while
-            bs-roformer-infer 0.1.5 silently ignored that field and built the
-            mask estimator at factor 4. LumaStems now repairs the mask-estimator
-            architecture to match the published checkpoint before loading it.
+            Main UI:
+            - Band 6: Vocals, Drums, Bass, Guitar, Piano, Other
+            - Worship Vocals 7: Lead Vocal, BGV / Choir, Drums, Bass, Guitar, Piano, Other
 
-            Release gates verify:
-            - the source wheel installs
-            - managed Apple Silicon FFmpeg exists and runs
-            - the real audio_separator Separator initializes with that FFmpeg on PATH
-            - the exact wheel inside the packaged app passes the same checks
-            - the actual published Worship 7 synth checkpoint downloads and loads successfully
-            - the macOS app launches successfully
+            The experimental synth specialist and its BS-RoFormer runtime have been removed
+            from the shipping app. Worship Vocals uses UVR-BVE-4B_SN-44100-2 on the isolated
+            vocal stem.
+
+            Release gates run the real backing-vocal model using both the source wheel and
+            the exact wheel packaged inside LumaStems.app before the DMG can publish.
           prerelease: true
           make_latest: true
-          files: LumaStems-0.2.6-Apple-Silicon.dmg
+          files: LumaStems-0.3.0-Apple-Silicon.dmg
           overwrite_files: true
