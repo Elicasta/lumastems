@@ -31,7 +31,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           python -m build --wheel --outdir python-dist
-          test -f python-dist/lumastems-0.2.1-py3-none-any.whl
+          test -f python-dist/lumastems-0.2.2-py3-none-any.whl
 
       - name: Verify first-run AI engine install
         shell: bash
@@ -39,7 +39,7 @@ jobs:
           python -m pip install --upgrade uv
           rm -rf /tmp/lumastems-engine-test
           uv venv /tmp/lumastems-engine-test --python 3.12
-          uv pip install --python /tmp/lumastems-engine-test/bin/python python-dist/lumastems-0.2.1-py3-none-any.whl
+          uv pip install --python /tmp/lumastems-engine-test/bin/python python-dist/lumastems-0.2.2-py3-none-any.whl
           /tmp/lumastems-engine-test/bin/lumastems presets
           /tmp/lumastems-engine-test/bin/python - <<'PY'
           import audio_separator
@@ -68,6 +68,84 @@ jobs:
 
       - name: Build Apple Silicon app and DMG
         run: npm run tauri:build -- --target aarch64-apple-darwin
+
+      - name: Verify packaged wheel installs from app bundle
+        shell: bash
+        run: |
+          APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/LumaStems.app"
+          WHEEL="$APP/Contents/Resources/engine/lumastems-0.2.2-py3-none-any.whl"
+          test -f "$WHEEL"
+          basename "$WHEEL" | grep -Eq '^lumastems-0\.2\.2-[^-]+-[^-]+-[^-]+\.whl        shell: bash
+        run: |
+          APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/LumaStems.app"
+          test -d "$APP"
+          BIN="$(find "$APP/Contents/MacOS" -maxdepth 1 -type f -perm -111 -print -quit)"
+          test -n "$BIN"
+          test -x "$BIN"
+          echo "Launching $BIN"
+          "$BIN" > /tmp/lumastems-startup.log 2>&1 &
+          PID=$!
+          sleep 8
+          if ! kill -0 "$PID" 2>/dev/null; then
+            echo "::error::LumaStems exited during startup smoke test"
+            echo "----- startup output -----"
+            cat /tmp/lumastems-startup.log || true
+            echo "----- recent crash reports -----"
+            find "$HOME/Library/Logs/DiagnosticReports" -maxdepth 1 -type f -name 'LumaStems*' -print -exec sh -c 'tail -n 120 "$1"' _ {} \; 2>/dev/null || true
+            exit 1
+          fi
+          kill "$PID"
+          wait "$PID" || true
+          echo "Startup smoke test passed"
+
+      - name: Stage installer
+        shell: bash
+        run: |
+          DMG="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$DMG"
+          cp "$DMG" LumaStems-0.2.2-Apple-Silicon.dmg
+          ls -lh LumaStems-0.2.2-Apple-Silicon.dmg
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LumaStems-0.2.2-Apple-Silicon
+          path: LumaStems-0.2.2-Apple-Silicon.dmg
+          if-no-files-found: error
+
+      - name: Publish preview release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.2.2-preview
+          name: "LumaStems 0.2.2 Preview"
+          body: |
+            LumaStems macOS preview with repaired first-run engine packaging.
+
+            Includes:
+            - Quick 4-stem separation
+            - Band 6 with dedicated guitar and piano
+            - Worship 7 with a dedicated BS-RoFormer synth specialist
+            - Local managed AI runtime
+            - WAV stem export and manifest output
+
+            Apple Silicon only. This build is ad-hoc signed, so macOS may require right-click > Open on first launch.
+          prerelease: true
+          make_latest: true
+          files: LumaStems-0.2.2-Apple-Silicon.dmg
+          overwrite_files: true
+
+
+          rm -rf /tmp/lumastems-packaged-engine-test
+          uv venv /tmp/lumastems-packaged-engine-test --python 3.12
+          uv pip install             --python /tmp/lumastems-packaged-engine-test/bin/python             "$WHEEL"
+
+          /tmp/lumastems-packaged-engine-test/bin/lumastems presets
+          /tmp/lumastems-packaged-engine-test/bin/python - <<'PY'
+          import audio_separator
+          import bs_roformer
+          import lumastems
+          print("Packaged LumaStems runtime imports passed")
+          PY
 
       - name: Smoke test packaged app
         shell: bash
@@ -98,21 +176,21 @@ jobs:
         run: |
           DMG="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
           test -n "$DMG"
-          cp "$DMG" LumaStems-0.2.1-Apple-Silicon.dmg
-          ls -lh LumaStems-0.2.1-Apple-Silicon.dmg
+          cp "$DMG" LumaStems-0.2.2-Apple-Silicon.dmg
+          ls -lh LumaStems-0.2.2-Apple-Silicon.dmg
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LumaStems-0.2.1-Apple-Silicon
-          path: LumaStems-0.2.1-Apple-Silicon.dmg
+          name: LumaStems-0.2.2-Apple-Silicon
+          path: LumaStems-0.2.2-Apple-Silicon.dmg
           if-no-files-found: error
 
       - name: Publish preview release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.1-preview
-          name: "LumaStems 0.2.1 Preview"
+          tag_name: v0.2.2-preview
+          name: "LumaStems 0.2.2 Preview"
           body: |
             First installable LumaStems macOS preview.
 
@@ -126,5 +204,5 @@ jobs:
             Apple Silicon only. This build is ad-hoc signed, so macOS may require right-click > Open on first launch.
           prerelease: true
           make_latest: true
-          files: LumaStems-0.2.1-Apple-Silicon.dmg
+          files: LumaStems-0.2.2-Apple-Silicon.dmg
           overwrite_files: true
