@@ -1,11 +1,20 @@
 from __future__ import annotations
 
-from .models import SeparationPreset, SeparationStage, StemSpec
+from .models import SeparationPreset, SeparationStage, StageBackend, StemSpec
 
 
 def _stems(*pairs: tuple[str, str]) -> tuple[StemSpec, ...]:
     return tuple(StemSpec(source_label=source, output_name=output) for source, output in pairs)
 
+
+BAND_STEMS = _stems(
+    ("Vocals", "vocals"),
+    ("Drums", "drums"),
+    ("Bass", "bass"),
+    ("Guitar", "guitar"),
+    ("Piano", "piano"),
+    ("Other", "other"),
+)
 
 PRESETS: dict[str, SeparationPreset] = {
     "quick": SeparationPreset(
@@ -36,14 +45,7 @@ PRESETS: dict[str, SeparationPreset] = {
                 id="main",
                 model_filename="htdemucs_6s.yaml",
                 description="Demucs 6-stem separation",
-                stems=_stems(
-                    ("Vocals", "vocals"),
-                    ("Drums", "drums"),
-                    ("Bass", "bass"),
-                    ("Guitar", "guitar"),
-                    ("Piano", "piano"),
-                    ("Other", "other"),
-                ),
+                stems=BAND_STEMS,
             ),
         ),
         expected_stems=("vocals", "drums", "bass", "guitar", "piano", "other"),
@@ -51,27 +53,44 @@ PRESETS: dict[str, SeparationPreset] = {
     "worship": SeparationPreset(
         id="worship",
         name="Worship 6-Stem",
+        description="Church-oriented six-stem split with dedicated guitar and piano stems.",
+        stages=(
+            SeparationStage(
+                id="main",
+                model_filename="htdemucs_6s.yaml",
+                description="Primary worship-band separation",
+                stems=BAND_STEMS,
+            ),
+        ),
+        expected_stems=("vocals", "drums", "bass", "guitar", "piano", "other"),
+    ),
+    "worship7": SeparationPreset(
+        id="worship7",
+        name="Worship 7",
         description=(
-            "Church-oriented six-stem split. v1 intentionally exposes only stems the "
-            "selected model can actually separate. Specialist BGV, drum-piece, synth, "
-            "strings, and keys stages can be added without changing the output contract."
+            "Deep worship split: six-stem Demucs first, then a dedicated MVSep "
+            "BS-RoFormer synth specialist on the residual Other stem."
         ),
         stages=(
             SeparationStage(
                 id="main",
                 model_filename="htdemucs_6s.yaml",
                 description="Primary worship-band separation",
+                stems=BAND_STEMS,
+            ),
+            SeparationStage(
+                id="synth",
+                backend=StageBackend.SYNTH_SPECIALIST,
+                model_filename="bs_mega_53stem_synth_mvsep.ckpt",
+                input_stem="other",
+                description="Dedicated synth-vs-rest specialist",
                 stems=_stems(
-                    ("Vocals", "vocals"),
-                    ("Drums", "drums"),
-                    ("Bass", "bass"),
-                    ("Guitar", "guitar"),
-                    ("Piano", "piano"),
+                    ("Synth", "synth"),
                     ("Other", "other"),
                 ),
             ),
         ),
-        expected_stems=("vocals", "drums", "bass", "guitar", "piano", "other"),
+        expected_stems=("vocals", "drums", "bass", "guitar", "piano", "synth", "other"),
     ),
 }
 
