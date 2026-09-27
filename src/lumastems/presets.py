@@ -84,8 +84,8 @@ PRESETS: dict[str, SeparationPreset] = {
                 input_stem="vocals",
                 description="Lead-vocal and backing-vocal specialist",
                 stems=_stems(
-                    ("Lead Vocals", "lead_vocals"),
-                    ("Backing Vocals", "backing_vocals"),
+                    ("Instrumental", "lead_vocals"),
+                    ("Vocals", "backing_vocals"),
                 ),
             ),
         ),
