@@ -41,6 +41,7 @@ class SynthSpecialist:
         """Fail early if the installed bs-roformer-infer API is incompatible."""
         try:
             from bs_roformer import demix_track, get_model_from_config  # noqa: F401
+            from bs_roformer.bs_roformer import MaskEstimator  # noqa: F401
             from bs_roformer.inference import SafeLoaderWithTuple  # noqa: F401
             from ml_collections import ConfigDict  # noqa: F401
         except ImportError as exc:
@@ -100,7 +101,7 @@ class SynthSpecialist:
             with self.config_path.open("r", encoding="utf-8") as handle:
                 config = ConfigDict(yaml.load(handle, Loader=SafeLoaderWithTuple))
 
-            model = get_model_from_config("bs_roformer", config)
+            model = self._build_compatible_model(config)
             checkpoint = torch.load(self.model_path, map_location=torch.device("cpu"))
             model.load_state_dict(checkpoint)
             device = torch.device("cpu")
@@ -152,6 +153,68 @@ class SynthSpecialist:
             "synth": synth_path.resolve(),
             "other": other_path.resolve(),
         }
+
+    @staticmethod
+    def _build_compatible_model(config: object):
+        """Build the published MVSep checkpoint architecture exactly.
+
+        bs-roformer-infer 0.1.5 filters out model.mlp_expansion_factor when it
+        constructs BSRoformer. The MVSep Mega 53 checkpoints use factor 2,
+        while the package's MaskEstimator defaults to factor 4. That doubles
+        the hidden layer width and makes the published checkpoint impossible
+        to load unless we repair the mask estimator after model construction.
+        """
+        import torch
+        from bs_roformer import get_model_from_config
+        from bs_roformer.bs_roformer import MaskEstimator
+
+        model = get_model_from_config("bs_roformer", config)
+
+        model_config = getattr(config, "model", None)
+        expansion = int(getattr(model_config, "mlp_expansion_factor", 4))
+        depth = int(getattr(model_config, "mask_estimator_depth", 2))
+
+        if expansion != 4:
+            repaired = []
+            for estimator in model.mask_estimators:
+                repaired.append(
+                    MaskEstimator(
+                        dim=int(getattr(model_config, "dim")),
+                        dim_inputs=tuple(estimator.dim_inputs),
+                        depth=depth,
+                        mlp_expansion_factor=expansion,
+                    )
+                )
+            model.mask_estimators = torch.nn.ModuleList(repaired)
+
+        return model
+
+    def validate_checkpoint_compatibility(self) -> None:
+        """Download the specialist assets and prove the checkpoint loads."""
+        self.validate_runtime_api()
+        self.ensure_assets()
+
+        try:
+            import torch
+            import yaml
+            from bs_roformer.inference import SafeLoaderWithTuple
+            from ml_collections import ConfigDict
+        except ImportError as exc:
+            raise SpecialistError(
+                "Synth specialist dependencies are incomplete in the LumaStems runtime."
+            ) from exc
+
+        with self.config_path.open("r", encoding="utf-8") as handle:
+            config = ConfigDict(yaml.load(handle, Loader=SafeLoaderWithTuple))
+
+        model = self._build_compatible_model(config)
+        checkpoint = torch.load(self.model_path, map_location=torch.device("cpu"))
+        try:
+            model.load_state_dict(checkpoint)
+        except RuntimeError as exc:
+            raise SpecialistError(
+                f"Synth checkpoint does not match the configured model architecture: {exc}"
+            ) from exc
 
     @staticmethod
     def _resolve_target_instrument(config: object, separated: dict[str, object]) -> str:
