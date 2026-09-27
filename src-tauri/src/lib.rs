@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 
-const ENGINE_VERSION: &str = "0.2.3";
+const ENGINE_VERSION: &str = "0.2.4";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -67,9 +67,11 @@ fn write_install_log(log_path: &Path, text: &str) {
 
 fn runtime_status_sync(app: &AppHandle) -> Result<RuntimeStatus, String> {
     let (app_data, python, engine, stamp) = runtime_paths(app)?;
+    let ffmpeg = app_data.join("runtime/bin/ffmpeg");
     let installed_version = fs::read_to_string(&stamp).ok();
     let ready = python.exists()
         && engine.exists()
+        && ffmpeg.exists()
         && installed_version.as_deref().map(str::trim) == Some(ENGINE_VERSION);
 
     let detail = if ready {
@@ -256,7 +258,7 @@ fn ensure_runtime_sync(app: &AppHandle) -> Result<RuntimeStatus, String> {
             .path()
             .resource_dir()
             .map_err(|error| format!("Could not locate bundled engine resources: {error}"))?;
-        let wheel = resource_dir.join("engine/lumastems-0.2.3-py3-none-any.whl");
+        let wheel = resource_dir.join("engine/lumastems-0.2.4-py3-none-any.whl");
         if !wheel.exists() {
             return Err(format!(
                 "The bundled LumaStems engine is missing: {}",
@@ -278,11 +280,58 @@ fn ensure_runtime_sync(app: &AppHandle) -> Result<RuntimeStatus, String> {
             &log_path,
         )?;
 
-        let mut validate_imports = Command::new(&python);
-        validate_imports.args([
+        let mut locate_ffmpeg = Command::new(&python);
+        locate_ffmpeg.args([
             "-c",
-            "import audioread; from audio_separator.separator import Separator; Separator(info_only=True); import bs_roformer, lumastems; print('runtime separator ok')",
+            "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())",
         ]);
+        let bundled_ffmpeg = run_checked_logged(
+            &mut locate_ffmpeg,
+            "Locating managed FFmpeg",
+            &log_path,
+        )?;
+        let bundled_ffmpeg = PathBuf::from(bundled_ffmpeg.trim());
+        if !bundled_ffmpeg.is_file() {
+            return Err(format!(
+                "Managed FFmpeg was not found at {}. Full log: {}",
+                bundled_ffmpeg.display(),
+                log_path.display()
+            ));
+        }
+
+        let ffmpeg = runtime_dir.join("bin/ffmpeg");
+        fs::copy(&bundled_ffmpeg, &ffmpeg)
+            .map_err(|error| format!("Could not install managed FFmpeg: {error}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut permissions = fs::metadata(&ffmpeg)
+                .map_err(|error| format!("Could not read FFmpeg permissions: {error}"))?
+                .permissions();
+            permissions.set_mode(0o755);
+            fs::set_permissions(&ffmpeg, permissions)
+                .map_err(|error| format!("Could not make FFmpeg executable: {error}"))?;
+        }
+
+        let mut validate_ffmpeg = Command::new(&ffmpeg);
+        validate_ffmpeg.arg("-version");
+        run_checked_logged(
+            &mut validate_ffmpeg,
+            "Validating managed FFmpeg",
+            &log_path,
+        )?;
+
+        let runtime_bin = runtime_dir.join("bin");
+        let existing_path = std::env::var("PATH").unwrap_or_default();
+        let runtime_path = format!("{}:{}", runtime_bin.display(), existing_path);
+
+        let mut validate_imports = Command::new(&python);
+        validate_imports
+            .args([
+                "-c",
+                "import audioread; from audio_separator.separator import Separator; Separator(); import bs_roformer, imageio_ffmpeg, lumastems; print('runtime separator and ffmpeg ok')",
+            ])
+            .env("PATH", &runtime_path);
         run_checked_logged(
             &mut validate_imports,
             "Validating LumaStems Python runtime",
@@ -298,7 +347,7 @@ fn ensure_runtime_sync(app: &AppHandle) -> Result<RuntimeStatus, String> {
         }
 
         let mut validate_cli = Command::new(&engine);
-        validate_cli.arg("presets");
+        validate_cli.arg("presets").env("PATH", &runtime_path);
         run_checked_logged(
             &mut validate_cli,
             "Validating LumaStems command line engine",
@@ -392,6 +441,9 @@ fn separate_audio_sync(
 
     let (app_data, _python, engine, _stamp) = runtime_paths(app)?;
     let model_dir = app_data.join("models");
+    let runtime_bin = app_data.join("runtime/bin");
+    let existing_path = std::env::var("PATH").unwrap_or_default();
+    let runtime_path = format!("{}:{}", runtime_bin.display(), existing_path);
 
     let mut command = Command::new(&engine);
     command
@@ -402,7 +454,8 @@ fn separate_audio_sync(
         .arg(output_path)
         .args(["--format", "WAV", "--json"])
         .env("LUMASTEMS_MODEL_DIR", &model_dir)
-        .env("AUDIO_SEPARATOR_MODEL_DIR", &model_dir);
+        .env("AUDIO_SEPARATOR_MODEL_DIR", &model_dir)
+        .env("PATH", &runtime_path);
 
     let stdout = run_checked(&mut command, "Stem separation")?;
     let result = parse_cli_result(&stdout)?;
