@@ -14,6 +14,11 @@ class JobStatus(StrEnum):
     FAILED = "failed"
 
 
+class StageBackend(StrEnum):
+    AUDIO_SEPARATOR = "audio_separator"
+    SYNTH_SPECIALIST = "synth_specialist"
+
+
 class StemSpec(BaseModel):
     source_label: str
     output_name: str
@@ -22,6 +27,7 @@ class StemSpec(BaseModel):
 class SeparationStage(BaseModel):
     id: str
     model_filename: str
+    backend: StageBackend = StageBackend.AUDIO_SEPARATOR
     input_stem: str | None = None
     stems: tuple[StemSpec, ...]
     description: str = ""
