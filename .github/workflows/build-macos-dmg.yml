@@ -32,23 +32,32 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           python -m build --wheel --outdir python-dist
-          test -f python-dist/lumastems-0.2.3-py3-none-any.whl
+          test -f python-dist/lumastems-0.2.4-py3-none-any.whl
 
-      - name: Verify source wheel and real separator
+      - name: Verify source wheel, FFmpeg, and real separator
         shell: bash
         run: |
           python -m pip install --upgrade uv
           rm -rf /tmp/lumastems-engine-test
           uv venv /tmp/lumastems-engine-test --python 3.12
-          uv pip install --python /tmp/lumastems-engine-test/bin/python python-dist/lumastems-0.2.3-py3-none-any.whl
+          uv pip install             --python /tmp/lumastems-engine-test/bin/python             python-dist/lumastems-0.2.4-py3-none-any.whl
+
+          PYTHON=/tmp/lumastems-engine-test/bin/python
+          FFMPEG="$("$PYTHON" -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
+
+          test -x "$FFMPEG"
+          "$FFMPEG" -version
           /tmp/lumastems-engine-test/bin/lumastems presets
-          /tmp/lumastems-engine-test/bin/python - <<'PY'
+
+          PATH="$(dirname "$FFMPEG"):$PATH" "$PYTHON" - <<'PY'
           import audioread
+          import imageio_ffmpeg
           from audio_separator.separator import Separator
-          Separator(info_only=True)
+
+          Separator()
           import bs_roformer
           import lumastems
-          print("Source wheel real Separator load passed")
+          print("Source wheel real Separator + managed FFmpeg passed")
           PY
 
       - name: Set up Node.js
@@ -72,28 +81,36 @@ jobs:
       - name: Build Apple Silicon app and DMG
         run: npm run tauri:build -- --target aarch64-apple-darwin
 
-      - name: Verify packaged wheel and real separator
+      - name: Verify packaged wheel, FFmpeg, and real separator
         shell: bash
         run: |
           APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/LumaStems.app"
-          WHEEL="$APP/Contents/Resources/engine/lumastems-0.2.3-py3-none-any.whl"
+          WHEEL="$APP/Contents/Resources/engine/lumastems-0.2.4-py3-none-any.whl"
 
           test -d "$APP"
           test -f "$WHEEL"
-          test "$(basename "$WHEEL")" = "lumastems-0.2.3-py3-none-any.whl"
+          test "$(basename "$WHEEL")" = "lumastems-0.2.4-py3-none-any.whl"
 
           rm -rf /tmp/lumastems-packaged-engine-test
           uv venv /tmp/lumastems-packaged-engine-test --python 3.12
-          uv pip install --python /tmp/lumastems-packaged-engine-test/bin/python "$WHEEL"
+          uv pip install             --python /tmp/lumastems-packaged-engine-test/bin/python             "$WHEEL"
 
+          PYTHON=/tmp/lumastems-packaged-engine-test/bin/python
+          FFMPEG="$("$PYTHON" -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
+
+          test -x "$FFMPEG"
+          "$FFMPEG" -version
           /tmp/lumastems-packaged-engine-test/bin/lumastems presets
-          /tmp/lumastems-packaged-engine-test/bin/python - <<'PY'
+
+          PATH="$(dirname "$FFMPEG"):$PATH" "$PYTHON" - <<'PY'
           import audioread
+          import imageio_ffmpeg
           from audio_separator.separator import Separator
-          Separator(info_only=True)
+
+          Separator()
           import bs_roformer
           import lumastems
-          print("Packaged wheel real Separator load passed")
+          print("Packaged wheel real Separator + managed FFmpeg passed")
           PY
 
       - name: Smoke test packaged app
@@ -123,31 +140,34 @@ jobs:
         run: |
           DMG="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
           test -n "$DMG"
-          cp "$DMG" LumaStems-0.2.3-Apple-Silicon.dmg
-          ls -lh LumaStems-0.2.3-Apple-Silicon.dmg
+          cp "$DMG" LumaStems-0.2.4-Apple-Silicon.dmg
+          ls -lh LumaStems-0.2.4-Apple-Silicon.dmg
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LumaStems-0.2.3-Apple-Silicon
-          path: LumaStems-0.2.3-Apple-Silicon.dmg
+          name: LumaStems-0.2.4-Apple-Silicon
+          path: LumaStems-0.2.4-Apple-Silicon.dmg
           if-no-files-found: error
 
       - name: Publish preview release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.3-preview
-          name: "LumaStems 0.2.3 Preview"
+          tag_name: v0.2.4-preview
+          name: "LumaStems 0.2.4 Preview"
           body: |
-            Fixes the missing audioread runtime dependency affecting Quick 4, Band 6, and Worship 7.
+            Fixes the missing FFmpeg runtime affecting all separation presets.
 
-            Release gates now verify:
+            LumaStems now installs and owns its FFmpeg binary inside the managed
+            app runtime. No Homebrew or manual FFmpeg setup is required.
+
+            Release gates verify:
             - the source wheel installs
-            - the real audio_separator Separator imports and instantiates
-            - the exact wheel inside the packaged app installs
-            - the packaged runtime loads the real Separator
+            - managed Apple Silicon FFmpeg exists and runs
+            - the real audio_separator Separator initializes with that FFmpeg on PATH
+            - the exact wheel inside the packaged app passes the same checks
             - the macOS app launches successfully
           prerelease: true
           make_latest: true
-          files: LumaStems-0.2.3-Apple-Silicon.dmg
+          files: LumaStems-0.2.4-Apple-Silicon.dmg
           overwrite_files: true
