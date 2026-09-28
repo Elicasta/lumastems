@@ -32,7 +32,7 @@ jobs:
         run: |
           python -m pip install --upgrade pip build
           python -m build --wheel --outdir python-dist
-          test -f python-dist/lumastems-0.3.0-py3-none-any.whl
+          test -f python-dist/lumastems-0.4.0-py3-none-any.whl
 
       - name: Install and verify source runtime
         shell: bash
@@ -40,7 +40,7 @@ jobs:
           python -m pip install --upgrade uv
           rm -rf /tmp/lumastems-engine-test /tmp/lumastems-ci-models
           uv venv /tmp/lumastems-engine-test --python 3.12
-          uv pip install             --python /tmp/lumastems-engine-test/bin/python             python-dist/lumastems-0.3.0-py3-none-any.whl
+          uv pip install             --python /tmp/lumastems-engine-test/bin/python             python-dist/lumastems-0.4.0-py3-none-any.whl
 
           PYTHON=/tmp/lumastems-engine-test/bin/python
           FFMPEG="$("$PYTHON" -c 'import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())')"
@@ -57,8 +57,14 @@ jobs:
           from audio_separator.separator import Separator
 
           Separator()
+          Separator(ensemble_preset="vocal_balanced", info_only=True)
           import lumastems
-          print("Core runtime passed")
+          from lumastems.presets import get_preset
+          auto = get_preset("auto6")
+          assert auto.stages[0].ensemble_preset == "vocal_balanced"
+          assert auto.stages[1].model_filename == "htdemucs_ft.yaml"
+          assert auto.stages[2].model_filename == "htdemucs_6s.yaml"
+          print("Core runtime + Auto Quality config passed")
           PY
 
       - name: Create vocal specialist fixture
@@ -158,11 +164,11 @@ jobs:
         shell: bash
         run: |
           APP="src-tauri/target/aarch64-apple-darwin/release/bundle/macos/LumaStems.app"
-          WHEEL="$APP/Contents/Resources/engine/lumastems-0.3.0-py3-none-any.whl"
+          WHEEL="$APP/Contents/Resources/engine/lumastems-0.4.0-py3-none-any.whl"
 
           test -d "$APP"
           test -f "$WHEEL"
-          test "$(basename "$WHEEL")" = "lumastems-0.3.0-py3-none-any.whl"
+          test "$(basename "$WHEEL")" = "lumastems-0.4.0-py3-none-any.whl"
 
           rm -rf /tmp/lumastems-packaged-engine-test
           uv venv /tmp/lumastems-packaged-engine-test --python 3.12
@@ -246,35 +252,36 @@ jobs:
         run: |
           DMG="$(find src-tauri/target/aarch64-apple-darwin/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
           test -n "$DMG"
-          cp "$DMG" LumaStems-0.3.0-Apple-Silicon.dmg
-          ls -lh LumaStems-0.3.0-Apple-Silicon.dmg
+          cp "$DMG" LumaStems-0.4.0-Apple-Silicon.dmg
+          ls -lh LumaStems-0.4.0-Apple-Silicon.dmg
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LumaStems-0.3.0-Apple-Silicon
-          path: LumaStems-0.3.0-Apple-Silicon.dmg
+          name: LumaStems-0.4.0-Apple-Silicon
+          path: LumaStems-0.4.0-Apple-Silicon.dmg
           if-no-files-found: error
 
       - name: Publish preview release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.3.0-preview
-          name: "LumaStems 0.3.0 Preview"
+          tag_name: v0.4.0-preview
+          name: "LumaStems 0.4.0 Preview"
           body: |
-            Stability-first release.
+            Automatic-quality release using existing pretrained models.
 
             Main UI:
-            - Band 6: Vocals, Drums, Bass, Guitar, Piano, Other
-            - Worship Vocals 7: Lead Vocal, BGV / Choir, Drums, Bass, Guitar, Piano, Other
+            - Auto Quality 6: curated vocal ensemble + htdemucs_ft rhythm + htdemucs_6s guitar/piano/other
+            - Auto Worship 7: Auto Quality 6 + tuned UVR-BVE lead/BGV pass
+            - Stable Band 6 / Stable Worship 7 remain as fallbacks
 
-            The experimental synth specialist and its BS-RoFormer runtime have been removed
-            from the shipping app. Worship Vocals uses UVR-BVE-4B_SN-44100-2 on the isolated
-            vocal stem.
+            No manual tuning is required. Auto Quality uses audio-separator's existing
+            curated vocal_balanced ensemble, then stronger Demucs settings for the
+            instrument passes.
 
-            Release gates run the real backing-vocal model using both the source wheel and
-            the exact wheel packaged inside LumaStems.app before the DMG can publish.
+            Release gates still run the real backing-vocal model, validate packaged
+            runtime dependencies, and launch the actual macOS app before publishing.
           prerelease: true
           make_latest: true
-          files: LumaStems-0.3.0-Apple-Silicon.dmg
+          files: LumaStems-0.4.0-Apple-Silicon.dmg
           overwrite_files: true
