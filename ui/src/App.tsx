@@ -367,7 +367,7 @@ function App() {
       )}
 
       <footer>
-        <span>LumaStems 0.3.0</span>
+        <span>LumaStems 0.4.0</span>
         <span>Local processing · Apple Silicon</span>
       </footer>
     </main>
