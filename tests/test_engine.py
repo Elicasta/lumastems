@@ -17,8 +17,8 @@ class FakeSeparator:
         self.kwargs = kwargs
         self.__class__.instances.append(self)
 
-    def load_model(self, model):
-        self.model = model
+    def load_model(self, model=None):
+        self.model = model or f"ensemble:{self.kwargs.get('ensemble_preset')}"
 
     def separate(self, source, custom_output_names=None):
         self.output_dir.mkdir(parents=True, exist_ok=True)
@@ -118,12 +118,32 @@ def test_warm_worship7_loads_both_real_model_names(tmp_path):
     ]
 
 
+def test_auto6_combines_existing_models_without_manual_tuning(tmp_path):
+    source = make_audio(tmp_path)
+    engine = make_engine(tmp_path)
+
+    result = engine.separate(source, preset_id="auto6", output_root=tmp_path / "out")
+
+    assert [stem.stem for stem in result.stems] == [
+        "vocals",
+        "drums",
+        "bass",
+        "guitar",
+        "piano",
+        "other",
+    ]
+    assert len(FakeSeparator.instances) == 3
+    assert FakeSeparator.instances[0].kwargs["ensemble_preset"] == "vocal_balanced"
+    assert FakeSeparator.instances[1].model == "htdemucs_ft.yaml"
+    assert FakeSeparator.instances[2].model == "htdemucs_6s.yaml"
+
+
 def test_output_folder_is_unique_per_run(tmp_path):
     source = make_audio(tmp_path)
     engine = make_engine(tmp_path)
 
-    first = engine.separate(source, preset_id="quick", output_root=tmp_path / "out")
-    second = engine.separate(source, preset_id="quick", output_root=tmp_path / "out")
+    first = engine.separate(source, preset_id="band", output_root=tmp_path / "out")
+    second = engine.separate(source, preset_id="band", output_root=tmp_path / "out")
 
     assert first.output_dir != second.output_dir
 
