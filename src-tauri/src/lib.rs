@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use tauri::{AppHandle, Manager};
 
-const ENGINE_VERSION: &str = "0.3.0";
+const ENGINE_VERSION: &str = "0.4.0";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -258,7 +258,7 @@ fn ensure_runtime_sync(app: &AppHandle) -> Result<RuntimeStatus, String> {
             .path()
             .resource_dir()
             .map_err(|error| format!("Could not locate bundled engine resources: {error}"))?;
-        let wheel = resource_dir.join("engine/lumastems-0.3.0-py3-none-any.whl");
+        let wheel = resource_dir.join("engine/lumastems-0.4.0-py3-none-any.whl");
         if !wheel.exists() {
             return Err(format!(
                 "The bundled LumaStems engine is missing: {}",
@@ -420,7 +420,7 @@ fn separate_audio_sync(
     output_dir: &str,
     preset: &str,
 ) -> Result<SeparationResult, String> {
-    let allowed = ["quick", "band", "worship", "worship7"];
+    let allowed = ["band", "worship7", "auto6", "auto7"];
     if !allowed.contains(&preset) {
         return Err(format!("Unknown separation preset: {preset}"));
     }
