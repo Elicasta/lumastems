@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from enum import StrEnum
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -25,10 +25,12 @@ class StemSpec(BaseModel):
 
 class SeparationStage(BaseModel):
     id: str
-    model_filename: str
+    model_filename: str | None = None
+    ensemble_preset: str | None = None
     backend: StageBackend = StageBackend.AUDIO_SEPARATOR
     input_stem: str | None = None
     stems: tuple[StemSpec, ...]
+    separator_options: dict[str, Any] = Field(default_factory=dict)
     description: str = ""
 
 
