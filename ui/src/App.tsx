@@ -23,7 +23,7 @@ type SeparationResult = {
   stems: StemResult[];
 };
 
-type PresetId = 'band' | 'worship7';
+type PresetId = 'auto6' | 'auto7' | 'band' | 'worship7';
 
 const PRESETS: Array<{
   id: PresetId;
@@ -32,15 +32,27 @@ const PRESETS: Array<{
   stems: string;
 }> = [
   {
+    id: 'auto6',
+    name: 'Auto Quality 6',
+    detail: 'Recommended. Curated vocal ensemble + higher-quality rhythm + band detail passes.',
+    stems: 'Vocals · Drums · Bass · Guitar · Piano · Other'
+  },
+  {
+    id: 'auto7',
+    name: 'Auto Worship 7',
+    detail: 'Auto Quality 6 plus lead vocal and BGV / choir separation.',
+    stems: 'Lead Vocal · BGV / Choir · Drums · Bass · Guitar · Piano · Other'
+  },
+  {
     id: 'band',
-    name: 'Band 6',
-    detail: 'Stable core split for rehearsal and playback.',
+    name: 'Stable Band 6',
+    detail: 'Single-model fallback using the proven six-stem path.',
     stems: 'Vocals · Drums · Bass · Guitar · Piano · Other'
   },
   {
     id: 'worship7',
-    name: 'Worship Vocals 7',
-    detail: 'Band 6 plus dedicated lead and backing vocal separation.',
+    name: 'Stable Worship 7',
+    detail: 'Stable Band 6 plus the backing-vocal specialist.',
     stems: 'Lead Vocal · BGV / Choir · Drums · Bass · Guitar · Piano · Other'
   }
 ];
@@ -54,7 +66,7 @@ function App() {
   const [runtime, setRuntime] = useState<RuntimeStatus | null>(null);
   const [source, setSource] = useState('');
   const [output, setOutput] = useState('');
-  const [preset, setPreset] = useState<PresetId>('band');
+  const [preset, setPreset] = useState<PresetId>('auto6');
   const [busy, setBusy] = useState<'setup' | 'separate' | null>(null);
   const [message, setMessage] = useState('Ready to set up LumaStems.');
   const [error, setError] = useState('');
@@ -147,9 +159,13 @@ function App() {
     setError('');
     setResult(null);
     setMessage(
-      preset === 'worship7'
-        ? 'Separating Band 6, then splitting the isolated vocal stem into Lead + BGV.'
-        : 'Separating Band 6.'
+      preset === 'auto7'
+        ? 'Running automatic quality separation, then Lead + BGV.'
+        : preset === 'auto6'
+          ? 'Running automatic multi-model quality separation.'
+          : preset === 'worship7'
+            ? 'Separating Stable Band 6, then Lead + BGV.'
+            : 'Separating Stable Band 6.'
     );
 
     try {
@@ -208,8 +224,8 @@ function App() {
         <p className="eyebrow">SOURCE SEPARATION</p>
         <h2>Turn a stereo master into usable band stems.</h2>
         <p className="hero-copy">
-          Band 6 is the stable core. Worship Vocals runs one extra specialist pass
-          against the isolated vocal stem to separate lead vocals from BGVs and choir.
+          Auto Quality chooses the existing curated models for you. It first cleans the
+          vocal/instrumental split, then uses stronger rhythm and band-detail passes automatically.
         </p>
       </section>
 
@@ -249,8 +265,9 @@ function App() {
               >
                 <div className="preset-top">
                   <strong>{item.name}</strong>
-                  {item.id === 'band' && <span className="recommended">STABLE</span>}
-                  {item.id === 'worship7' && <span className="recommended">VOCALS</span>}
+                  {item.id === 'auto6' && <span className="recommended">RECOMMENDED</span>}
+                  {item.id === 'auto7' && <span className="recommended">WORSHIP</span>}
+                  {item.id === 'band' && <span className="recommended">FALLBACK</span>}
                 </div>
                 <span>{item.detail}</span>
                 <small>{item.stems}</small>
@@ -292,9 +309,9 @@ function App() {
           <div>
             <strong>{error || message}</strong>
             <small>
-              {preset === 'worship7'
-                ? 'First use downloads the backing-vocal specialist model and caches it locally.'
-                : 'Band 6 uses the stable local Demucs model.'}
+              {preset.startsWith('auto')
+                ? 'No manual tuning. LumaStems runs the curated ensemble and quality passes automatically.'
+                : 'Stable fallback uses the proven single-model path.'}
             </small>
           </div>
         </div>
