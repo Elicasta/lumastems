@@ -57,28 +57,39 @@ class LumaStemEngine:
         preset_id: str,
         progress: Callable[[float, str], None] | None = None,
     ) -> list[str]:
-        """Download/load every unique model needed by a preset."""
+        """Download/load every unique model or ensemble needed by a preset."""
         preset = get_preset(preset_id)
         factory = self._get_separator_factory()
+        stages = list(preset.stages)
+        total = max(len(stages), 1)
         downloaded: list[str] = []
 
-        models = list(dict.fromkeys(stage.model_filename for stage in preset.stages))
-        total = max(len(models), 1)
-
-        for index, model in enumerate(models):
+        for index, stage in enumerate(stages):
+            label = stage.ensemble_preset or stage.model_filename or stage.id
             if progress:
-                progress(index / total, f"Loading {model}")
+                progress(index / total, f"Loading {label}")
 
-            separator = factory(
-                model_file_dir=str(self.model_dir),
-                log_level=self.log_level,
-                info_only=True,
-            )
-            separator.load_model(model)
-            downloaded.append(model)
+            kwargs = {
+                "model_file_dir": str(self.model_dir),
+                "log_level": self.log_level,
+                "info_only": True,
+                **stage.separator_options,
+            }
+            if stage.ensemble_preset:
+                kwargs["ensemble_preset"] = stage.ensemble_preset
+
+            separator = factory(**kwargs)
+            if stage.ensemble_preset:
+                separator.load_model()
+            elif stage.model_filename:
+                separator.load_model(stage.model_filename)
+            else:
+                raise SeparationError(f"Stage '{stage.id}' has no model or ensemble.")
+
+            downloaded.append(label)
 
             if progress:
-                progress((index + 1) / total, f"Ready: {model}")
+                progress((index + 1) / total, f"Ready: {label}")
 
         return downloaded
 
@@ -158,7 +169,7 @@ class LumaStemEngine:
                     StemFile(
                         stem=spec.output_name,
                         path=str(path),
-                        model=stage.model_filename,
+                        model=stage.ensemble_preset or stage.model_filename or stage.id,
                         stage=stage.id,
                     )
                 )
@@ -192,17 +203,28 @@ class LumaStemEngine:
         output_format: str,
         progress: Callable[[float, str], None] | None,
     ) -> dict[str, Path]:
+        label = stage.ensemble_preset or stage.model_filename or stage.id
         if progress:
-            progress(0.0, f"Loading {stage.model_filename}")
+            progress(0.0, f"Loading {label}")
 
         factory = self._get_separator_factory()
-        separator = factory(
-            model_file_dir=str(self.model_dir),
-            output_dir=str(stage_dir),
-            output_format=output_format.upper(),
-            log_level=self.log_level,
-        )
-        separator.load_model(stage.model_filename)
+        kwargs = {
+            "model_file_dir": str(self.model_dir),
+            "output_dir": str(stage_dir),
+            "output_format": output_format.upper(),
+            "log_level": self.log_level,
+            **stage.separator_options,
+        }
+        if stage.ensemble_preset:
+            kwargs["ensemble_preset"] = stage.ensemble_preset
+
+        separator = factory(**kwargs)
+        if stage.ensemble_preset:
+            separator.load_model()
+        elif stage.model_filename:
+            separator.load_model(stage.model_filename)
+        else:
+            raise SeparationError(f"Stage '{stage.id}' has no model or ensemble.")
 
         custom_names = {stem.source_label: stem.output_name for stem in stage.stems}
         produced = separator.separate(
